@@ -100,15 +100,17 @@ doRainValidation <- function
   to.pdf = FALSE
 )
 {
-  ## Get neighbour matrix
-  neighb <- distanceToNeighbour(getGaugeDistances())
-  #mdb = "D:/KWB/REvaluation/RData/Regendaten_BWB_ab2008.mdb"))
-  
-  ## Call the rain validation routine
-  
   ## Prepare pdf device but do not set current device to pdf device
   file.pdf <- preparePdfIf(to.pdf, makeCurrent = FALSE)
   
+  neighb <- if (file.exists(kwb.read::mdb_rain_meta())) {
+    distanceToNeighbour(getGaugeDistances())
+  } else {
+    message("no neighbour data available, using random neighbours!")
+    randomNeighbours(gauges = names(rd)[-(1:2)])
+  }
+  
+  ## Call the rain validation routine
   corr <- rainValidation(
     rd = rd,
     cd = cd,
@@ -130,6 +132,15 @@ doRainValidation <- function
   corr
 }
 
+# randomNeighbours -------------------------------------------------------------
+randomNeighbours <- function(gauges)
+{
+  structure(
+    do.call(rbind, lapply(seq_along(gauges), function(i) sample(gauges[-i]))),
+    dimnames = list(gauges, paste0("n", seq_len(length(gauges) - 1)))
+  )
+}
+
 # rainValidation ---------------------------------------------------------------
 rainValidation <- function
 (
@@ -139,13 +150,16 @@ rainValidation <- function
   ### data frame with rain correction data
   gauges = names(rd)[-(1:2)],
   ### names of gauges to be validated. Default: names of columns 3:ncol(rd)
+  columns = c(time = "tBeg_BWB", date = "tDate_BWB"),
+  ### named vector of column names. 1. (named "time"): Name of date and time
+  ### column in \code{rd}, 2. (named "date"): Date column in \cde{cd}
   dbg = FALSE,
+  ### if \code{TRUE} debug messages are shown
   ...
   ### further arguments passed to validateRainDay, such as neighb, devPdf, ask
 )
 {
-  colbeg <- "tBeg_BWB"
-  coldat <- "tDate_BWB"
+  RESULT <- list()
   
   dbgRain <- data.frame()
   
@@ -155,12 +169,12 @@ rainValidation <- function
   
   ## We need the correction data only in the time interval and for the gauges
   ## to correct
-  daystrings.rd <- hsDateStr(selectColumns(rd, colbeg))
-  daystrings.cd <- as.character(selectColumns(cd, coldat))
+  daystrings.rd <- hsDateStr(selectColumns(rd, columns["time"]))
+  daystrings.cd <- as.character(selectColumns(cd, columns["date"]))
   
   # Select rows and columns
   cd <- cd[daystrings.cd %in% unique(daystrings.rd), ]
-  cd <- selectColumns(cd, c(coldat, gauges))
+  cd <- selectColumns(cd, c(columns["date"], gauges))
   
   ## Loop through the rain gauges
   for (gauge in gauges) {
@@ -181,12 +195,19 @@ rainValidation <- function
       }
       else {
         cat(sprintf("\n*** Corrections to be done for gauge '%s':\n", gauge))
-        print(selectColumns(cdg, c(coldat, gauge)))
+        print(selectColumns(cdg, c(columns["date"], gauge)))
         
         ### Loop through days of correction
         daysOfCorrection <- hsDateStr(cdg[[1]])
         
         for (dayOfCorrection in daysOfCorrection) {
+          
+          RESULT[[length(RESULT) + 1]] <- data.frame(
+            gauge = gauge, 
+            day = dayOfCorrection, 
+            correction = cdg[hsDateStr(cdg[[1]]) == dayOfCorrection, gauge],
+            stringsAsFactors = FALSE
+          )
           
           ## Validate rain data of this day and gauge
           res <- validateRainDay(
@@ -218,7 +239,8 @@ rainValidation <- function
     }
   } ## next gauge
   
-  list(rd.diff = rd.diff, cd.diff = cd.diff, dbgRain = dbgRain)
+  list(rd.diff = rd.diff, cd.diff = cd.diff, dbgRain = dbgRain,
+       RESULT = RESULT)
 }
 
 # validateRainDay --------------------------------------------------------------
@@ -1165,7 +1187,8 @@ if (FALSE)
   
   corr.rdata <- file.path(.testdir(), "corr.RData")
   
-  #save(corr, out, file = corr.rdata)
+  #cases <- rbindAll(corr$RESULT)
+  #save(corr, out, cases, file = corr.rdata)
   identical(corr, getObjectFromRDataFile(corr.rdata, "corr"))
   identical(out, getObjectFromRDataFile(corr.rdata, "out"))
   
