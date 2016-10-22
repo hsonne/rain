@@ -1,19 +1,14 @@
 library(kwb.utils) # for hsMatrixToListForm
-library(kwb.read) # for hsGetBwbRainData, hsGetBwbRainCorr
+library(kwb.read) # for hsGetBwbRainData, readBwbRainCorrection
 library(kwb.misc)
 library(lattice)
 library(kwb.db) # for hsSqlQuery
 library(kwb.datetime) # for hsDateStr
 
-# Github test: do you recognise me?
-# git config user.email "hauke.sonnenberg@kompetenz-wasser.de"
-
 # .testdir ---------------------------------------------------------------------
 .testdir <- function()
 {
-  kwb.utils::createDirAndReturnPath(file.path(
-    "C:/Users", Sys.getenv("USERNAME"), "Desktop/tmp/RTest"
-  ))
+  kwb.utils::createDirAndReturnPath(file.path(desktop(), "tmp/RTest"))
 }
 
 # .xlsdir ----------------------------------------------------------------------
@@ -67,6 +62,13 @@ getPathsForRainValidation <- function(xls.dir = "", example = 0)
     
     xls.rd <- file.path(xls.dir, "Regen_2011_hs.csv")
     xls.cd <- file.path(xls.dir, "RegenValidierung_2011_hs.csv")
+    
+  } else if (example == 4) {
+    
+    xls.dir <- "/home/hauke/Desktop/2_Prep"
+    
+    xls.rd <- file.path(xls.dir, "Regen_2012_hs.csv")
+    xls.cd <- file.path(xls.dir, "RegenValidierung_2012_hs.csv")
     
   } else {
     stop("Example not in 0 ... 3!")
@@ -1115,9 +1117,9 @@ if (FALSE)
   write.to.csv <- FALSE
   
   ## Step 01: Load raw rain signals from xls
-  paths <- getPathsForRainValidation(xls.dir, example = 2)
+  paths <- getPathsForRainValidation(xls.dir, example = 4)
   
-  file <- file.path(tempdir(), "rain.RData")
+  file <- file.path(.testdir(), "rain.RData")
   
   if (file.exists(file)) {
     rd.orig <- kwb.utils::getObjectFromRDataFile(file, "rd.orig")
@@ -1145,13 +1147,7 @@ if (FALSE)
   }
   
   ## Step 04: Load daily correction values -> cd.orig
-  cd.orig <- hsGetBwbRainCorr(
-    xls = paths$xls.cd,
-    tblCorr = "Bericht 1$",
-    tblGaug = "gaugeNames",
-    zerolines.rm = TRUE,
-    dbg = TRUE
-  )
+  cd.orig <- readBwbRainCorrection(paths$xls.cd, zerolines.rm = TRUE, dbg = TRUE)
   
   ## Step 05: Convert cd.orig to list form -> cd.list
   cd.list <- corrToLongFormat(cd.orig)
@@ -1518,9 +1514,7 @@ if (FALSE)
   paths <- getPathsForRainValidation("//moby/miacso$/Daten/Extern/BWB/Regen_BWB/2_Prep")
   
   ## Load daily correction values -> cd.orig
-  cd <- hsGetBwbRainCorr(paths$xls.cd,
-                         tblCorr = "Bericht 1$", tblGaug = "gaugeNames",
-                         zerolines.rm = TRUE, dbg = TRUE)
+  cd <- readBwbRainCorrection(file = paths$xls.cd, zerolines.rm = TRUE, dbg = TRUE)
   
   ## Save correction data to table "tblTmpCorrDay" in mdb by overwriting
   ## the existing one
