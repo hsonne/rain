@@ -5,6 +5,198 @@ library(lattice)
 library(kwb.db) # for hsSqlQuery
 library(kwb.datetime) # for hsDateStr
 
+# Rain validation of BWB rain data (provided in xls-files) =====================
+if (FALSE)
+{
+  ## Idea of a good validation procedure:
+  ##
+  ## 01. Load raw rain signals from xls -> rd.orig
+  ## 02. Convert rd.orig to list form -> rd.list
+  ## 03. Write rd.list to mdb::tbl_1_RawSignal
+  ##
+  ## 04. Load daily correction values -> cd.orig
+  ## 05. Convert cd.orig to list form -> cd.list
+  ## 06. Write cd.list to mdb::tbl_2_CorrPerDay
+  ##
+  ## 07. Auto-validation(rd, cd) -> negative correction values in rd.diff
+  ## 08. rd.diff$comment <- "auto-val in R"
+  ## 09. Write rd.diff to mdb::tbl_3_CorrSignal
+  ##
+  ## 10. Go through list of days that could not be auto-validated in step 07:
+  ##     Find calibration/false signals manually and extend tbl_3_CorrSignals
+  ##     accordingly
+  ##
+  ## 11. Prepare a text file (csv) in which gauge failures are listed
+  ## 12. Load gauge failure information from file prepared in step 11 -> fi
+  ## 13. Write fi to mdb::tbl_4_Failure
+  
+  xls.dir <- .xlsdir(home = FALSE)
+  write.to.mdb <- FALSE
+  write.to.csv <- FALSE
+  
+  ## Step 01: Load raw rain signals from xls
+  paths <- getPathsForRainValidation(xls.dir, example = 4)
+  
+  file <- file.path(.testdir(), "rain.RData")
+  
+  if (file.exists(file)) {
+    rd.orig <- kwb.utils::getObjectFromRDataFile(file, "rd.orig")
+  } else {
+    rd.orig <- hsGetBwbRainData(paths$xls.rd, use2007Driver = TRUE)
+    save(rd.orig, file = file)
+  }
+  
+  ## Step 02: Convert rd.orig to list form -> rd.list.
+  ## Step 02a: append an additional date column; this will facilitate manual
+  ##           browsing through the database table for wrong signals.
+  ## Step 02b: append an additional column indicating if timestamp belongs to
+  ##           the summer time interval in which daylight saving time (DST) is
+  ##           active. So we are able to create a primary key for the mdb table.
+  rd.list <- rainToLongFormat(cbind(rd.orig, additionalTimeColumns(rd.orig)))
+  
+  ## Step 03: Write rd.list to mdb::tbl_1_RawSignal and set primary key
+  if (write.to.mdb) {
+    mdb <- file.path(xls.dir, "rainval.mdb")
+    columns <- c("gauge", "tDate_BWB", "tBeg_DST", "tBeg_UTCp1",
+                 "tBeg_BWB", "tEnd_BWB", "raw_mm")
+    tbl <- hsPutTable(mdb, rd.list[, columns], "tbl_1_RawSignal")
+    #hsSetPrimaryKey(mdb, tbl, c("gauge", "tBeg_DST", "tBeg_BWB"))
+    hsSetPrimaryKey(mdb, tbl, c("gauge", "tBeg_UTCp1"))
+  }
+  
+  ## Step 04: Load daily correction values -> cd.orig
+  cd.orig <- readBwbRainCorrection(paths$xls.cd, zerolines.rm = TRUE, dbg = TRUE)
+  
+  ## Step 05: Convert cd.orig to list form -> cd.list
+  cd.list <- corrToLongFormat(cd.orig)
+  
+  ## Step 06: Write cd.list to mdb::tbl_2_CorrPerDay
+  if (write.to.mdb) {
+    tbl <- hsPutTable(mdb, cd.list, "tbl_2_CorrPerDay")
+    hsSetPrimaryKey(mdb, tbl, c("gauge", "tDate_BWB"))
+  }
+  
+  ## Step 07: Auto-validation(rd, cd) -> negative correction values in rd.diff
+  system.time(out <- capture.output(
+    corr <- doRainValidation(rd = rd.orig, cd = cd.orig, ask = FALSE)
+  ))
+  
+  corr.rdata <- file.path(.testdir(), "corr.RData")
+  
+  #cases <- rbindAll(corr$RESULT)
+  #save(corr, out, cases, file = corr.rdata)
+  identical(corr, getObjectFromRDataFile(corr.rdata, "corr"))
+  identical(out, getObjectFromRDataFile(corr.rdata, "out"))
+  
+  ## Step 08: rd.diff$comment <- "auto-val in R"
+  corr$rd.diff$comment <- "auto-val in R"
+  
+  ## Step 09: Write rd.diff to mdb::tbl_3_CorrSignal
+  if (write.to.mdb) {
+    hsPutTable(mdb, corr$rd.diff, "tbl_3_CorrSignal")
+  }
+  
+  ## Preparation of Step 10:
+  ## - 10a: Generate pdf showing "history" of auto-validation
+  pageAndPlot(corr$dbgRain, rpp = 80, cex = 0.5,
+              main = "Modifications done during rain validation")
+  
+  ## - 10b: Print table of rain heights per day to pdf
+  plotDailyRainHeightTable(rd.orig[, -1], landscape = FALSE, ppp = 2, cex = 0.5)
+  
+  ## - 10c: Plot rain event overview to pdf; this file shall be used to decide
+  ##   whether signals look like calibration signals.
+  plotRainEventOverview(rd.orig[, -1])
+  
+  ## - 10d: Plot cumulative rain per day to pdf; EPR uses these kind of diagrams
+  ##   to decide whether a rain gauge "hangs".
+  
+  ##   * Calculate cumulative rain heigths within each day
+  rd.long <- kwb.rain::getDailyCumulativeRain(rd.orig)
+  
+  ##   * Write cumulated rain data in "list form" to database table (if required)
+  if (write.to.mdb) {
+    hsPutTable(mdb, rd.long, "tbl_1a_RawCumSig")
+  }
+  
+  ##   * Plot cumulative rain per day
+  kwb.rain::plotCumulativeRain(rd.long, to.pdf = TRUE)
+  
+  ## - 10e: Print out the pdf file generated during Step 10a, you will need it
+  ##   during Step 10; all situations in which the correction value could not
+  ##   be assigned to signals are indicated with "***" in column "action"
+  
+  ## Step 10: Go through the list generated in Step 10a, looking for gauges and
+  ##          days that could not be auto-validated in Step 07. Use the diagrams
+  ##          produced in Steps 10c and 10d to find calibration/false signals
+  ##          manually and extend tbl_3_CorrSignals in mdb accordingly. Give
+  ##          a comment on who decided for the correction.
+  
+  ## Step 11: Provide a table "tbl_4_CorrFailure" in mdb with columns
+  ##            containing time intervals from which it is known
+  ##          that gauges did not work correctly
+  ##
+  
+  ## Step 12: Run query "qryCreateRainValid" in mdb to create a table
+  ##          tbl_RainValid containing the valid rain series
+  
+  ## Step 13: Check tbl_RainValid for last calibration signals that have not
+  ##          been documented in the Excel file of daily correction valus.
+  ##          If there are values that look like calibration signals insert
+  ##          additional records into "tbl_3_CorrSignal" and recreate the
+  ##          tbl_RainValid by rerunning Step 12.
+  
+  ## Step 14: If we agree with the data in tbl_RainValid we can load it and
+  ##          convert timestamps to UTC+1
+  rd.valid <- hsMdbTimeSeries(mdb, "tbl_RainValid", sqlFilter = "ORDER BY ")
+  
+  ## write raw data to mdb in folder xls.dir and produce overview graphs and
+  ## table showing rain per day
+  #hsRainValAna1(mdb <- file.path(xls.dir, "rainVal.mdb"), rd.orig)
+  
+  ## Apply the corrections to rd and cdi
+  res <- applyCorrection(rd, cd, corr)
+  rd <- res$rd
+  cd <- res$cd
+  
+  ## Convert timestamp to UTC+1 in new rain data
+  rd.final <- rd
+  #rd.final$myDateTime <- hsST2WT(rd.final$tEnd_BWB)
+  rd.final$myDateTime <- rd.final$tEnd_BWB
+  
+  ## Remove original timestamp columns
+  rd.final <- rd.final[, -c(1, 2)]
+  
+  ## Make timestamp column the first column
+  n.cols <- ncol(rd.final)
+  rd.final <- rd.final[, c(n.cols, 1:(n.cols - 1))]
+  
+  ## Save final rain data to database
+  if (write.to.mdb) {
+    mdb <- "//moby/miacso$/Daten/ACCESS/Regen/Regendaten_BWB_ab2008.mdb"
+    tbl <- "tblVal_2007_withoutUserDecision_DLS" #"tblVal_2011_lastTwoDays"
+    tbl <- hsPutTable(mdb, rd.final, tbl)
+    
+    ## Append new data to "total" table
+    hsSqlQuery(mdb, paste (
+      "INSERT INTO tbl_Regen_alleEZG_05min (",
+      "  Zeitstempel, Bln_IV, Bln_V, Bln_IX, Bln_X, Bln_XI, Nkn_I, Nkn_II, Chb_I, Wil, Wil_a, Lbg, Hlg, Zhl_I, K?p_I_f, Kar, Spa_II",
+      ")",
+      "SELECT",
+      "  myDateTime,  BlnIV,  BlnV,  BlnIX,  BlnX,  BlnXI,  NknI,  NknII,  ChbI,  Wil, Wila,  Lbg, Hlg, ZhlIe, KoepIf,  Kar, SpaII",
+      "FROM", tbl))
+  }
+  
+  ## Save new correction dataset to csv files
+  if (write.to.csv) {
+    write.csv2(cd, file = file.path(xls.dir, "hsValCorrDataNew2.csv"))
+  }
+  
+  ##
+  ## Manually: write screen output to hsValLog.txt...
+  ##
+}
+
 # .testdir ---------------------------------------------------------------------
 .testdir <- function()
 {
@@ -1107,198 +1299,6 @@ if (FALSE)
   info.pw <- rbind(info.apw, info.hpw, info.upw)
   
   hsPutTable(mdb_rain_meta(), info.pw, "tblPwInfo")
-}
-
-# Rain validation of BWB rain data (provided in xls-files) =====================
-if (FALSE)
-{
-  ## Idea of a good validation procedure:
-  ##
-  ## 01. Load raw rain signals from xls -> rd.orig
-  ## 02. Convert rd.orig to list form -> rd.list
-  ## 03. Write rd.list to mdb::tbl_1_RawSignal
-  ##
-  ## 04. Load daily correction values -> cd.orig
-  ## 05. Convert cd.orig to list form -> cd.list
-  ## 06. Write cd.list to mdb::tbl_2_CorrPerDay
-  ##
-  ## 07. Auto-validation(rd, cd) -> negative correction values in rd.diff
-  ## 08. rd.diff$comment <- "auto-val in R"
-  ## 09. Write rd.diff to mdb::tbl_3_CorrSignal
-  ##
-  ## 10. Go through list of days that could not be auto-validated in step 07:
-  ##     Find calibration/false signals manually and extend tbl_3_CorrSignals
-  ##     accordingly
-  ##
-  ## 11. Prepare a text file (csv) in which gauge failures are listed
-  ## 12. Load gauge failure information from file prepared in step 11 -> fi
-  ## 13. Write fi to mdb::tbl_4_Failure
-  
-  xls.dir <- .xlsdir(home = FALSE)
-  write.to.mdb <- FALSE
-  write.to.csv <- FALSE
-  
-  ## Step 01: Load raw rain signals from xls
-  paths <- getPathsForRainValidation(xls.dir, example = 4)
-  
-  file <- file.path(.testdir(), "rain.RData")
-  
-  if (file.exists(file)) {
-    rd.orig <- kwb.utils::getObjectFromRDataFile(file, "rd.orig")
-  } else {
-    rd.orig <- hsGetBwbRainData(paths$xls.rd, use2007Driver = TRUE)
-    save(rd.orig, file = file)
-  }
-  
-  ## Step 02: Convert rd.orig to list form -> rd.list.
-  ## Step 02a: append an additional date column; this will facilitate manual
-  ##           browsing through the database table for wrong signals.
-  ## Step 02b: append an additional column indicating if timestamp belongs to
-  ##           the summer time interval in which daylight saving time (DST) is
-  ##           active. So we are able to create a primary key for the mdb table.
-  rd.list <- rainToLongFormat(cbind(rd.orig, additionalTimeColumns(rd.orig)))
-  
-  ## Step 03: Write rd.list to mdb::tbl_1_RawSignal and set primary key
-  if (write.to.mdb) {
-    mdb <- file.path(xls.dir, "rainval.mdb")
-    columns <- c("gauge", "tDate_BWB", "tBeg_DST", "tBeg_UTCp1",
-                 "tBeg_BWB", "tEnd_BWB", "raw_mm")
-    tbl <- hsPutTable(mdb, rd.list[, columns], "tbl_1_RawSignal")
-    #hsSetPrimaryKey(mdb, tbl, c("gauge", "tBeg_DST", "tBeg_BWB"))
-    hsSetPrimaryKey(mdb, tbl, c("gauge", "tBeg_UTCp1"))
-  }
-  
-  ## Step 04: Load daily correction values -> cd.orig
-  cd.orig <- readBwbRainCorrection(paths$xls.cd, zerolines.rm = TRUE, dbg = TRUE)
-  
-  ## Step 05: Convert cd.orig to list form -> cd.list
-  cd.list <- corrToLongFormat(cd.orig)
-  
-  ## Step 06: Write cd.list to mdb::tbl_2_CorrPerDay
-  if (write.to.mdb) {
-    tbl <- hsPutTable(mdb, cd.list, "tbl_2_CorrPerDay")
-    hsSetPrimaryKey(mdb, tbl, c("gauge", "tDate_BWB"))
-  }
-  
-  ## Step 07: Auto-validation(rd, cd) -> negative correction values in rd.diff
-  system.time(out <- capture.output(
-    corr <- doRainValidation(rd = rd.orig, cd = cd.orig, ask = FALSE)
-  ))
-  
-  corr.rdata <- file.path(.testdir(), "corr.RData")
-  
-  #cases <- rbindAll(corr$RESULT)
-  #save(corr, out, cases, file = corr.rdata)
-  identical(corr, getObjectFromRDataFile(corr.rdata, "corr"))
-  identical(out, getObjectFromRDataFile(corr.rdata, "out"))
-  
-  ## Step 08: rd.diff$comment <- "auto-val in R"
-  corr$rd.diff$comment <- "auto-val in R"
-  
-  ## Step 09: Write rd.diff to mdb::tbl_3_CorrSignal
-  if (write.to.mdb) {
-    hsPutTable(mdb, corr$rd.diff, "tbl_3_CorrSignal")
-  }
-  
-  ## Preparation of Step 10:
-  ## - 10a: Generate pdf showing "history" of auto-validation
-  pageAndPlot(corr$dbgRain, rpp = 80, cex = 0.5,
-              main = "Modifications done during rain validation")
-  
-  ## - 10b: Print table of rain heights per day to pdf
-  plotDailyRainHeightTable(rd.orig[, -1], landscape = FALSE, ppp = 2, cex = 0.5)
-  
-  ## - 10c: Plot rain event overview to pdf; this file shall be used to decide
-  ##   whether signals look like calibration signals.
-  plotRainEventOverview(rd.orig[, -1])
-  
-  ## - 10d: Plot cumulative rain per day to pdf; EPR uses these kind of diagrams
-  ##   to decide whether a rain gauge "hangs".
-  
-  ##   * Calculate cumulative rain heigths within each day
-  rd.long <- kwb.rain::getDailyCumulativeRain(rd.orig)
-  
-  ##   * Write cumulated rain data in "list form" to database table (if required)
-  if (write.to.mdb) {
-    hsPutTable(mdb, rd.long, "tbl_1a_RawCumSig")
-  }
-  
-  ##   * Plot cumulative rain per day
-  kwb.rain::plotCumulativeRain(rd.long, to.pdf = TRUE)
-  
-  ## - 10e: Print out the pdf file generated during Step 10a, you will need it
-  ##   during Step 10; all situations in which the correction value could not
-  ##   be assigned to signals are indicated with "***" in column "action"
-  
-  ## Step 10: Go through the list generated in Step 10a, looking for gauges and
-  ##          days that could not be auto-validated in Step 07. Use the diagrams
-  ##          produced in Steps 10c and 10d to find calibration/false signals
-  ##          manually and extend tbl_3_CorrSignals in mdb accordingly. Give
-  ##          a comment on who decided for the correction.
-  
-  ## Step 11: Provide a table "tbl_4_CorrFailure" in mdb with columns
-  ##            containing time intervals from which it is known
-  ##          that gauges did not work correctly
-  ##
-  
-  ## Step 12: Run query "qryCreateRainValid" in mdb to create a table
-  ##          tbl_RainValid containing the valid rain series
-  
-  ## Step 13: Check tbl_RainValid for last calibration signals that have not
-  ##          been documented in the Excel file of daily correction valus.
-  ##          If there are values that look like calibration signals insert
-  ##          additional records into "tbl_3_CorrSignal" and recreate the
-  ##          tbl_RainValid by rerunning Step 12.
-  
-  ## Step 14: If we agree with the data in tbl_RainValid we can load it and
-  ##          convert timestamps to UTC+1
-  rd.valid <- hsMdbTimeSeries(mdb, "tbl_RainValid", sqlFilter = "ORDER BY ")
-  
-  ## write raw data to mdb in folder xls.dir and produce overview graphs and
-  ## table showing rain per day
-  #hsRainValAna1(mdb <- file.path(xls.dir, "rainVal.mdb"), rd.orig)
-  
-  ## Apply the corrections to rd and cdi
-  res <- applyCorrection(rd, cd, corr)
-  rd <- res$rd
-  cd <- res$cd
-  
-  ## Convert timestamp to UTC+1 in new rain data
-  rd.final <- rd
-  #rd.final$myDateTime <- hsST2WT(rd.final$tEnd_BWB)
-  rd.final$myDateTime <- rd.final$tEnd_BWB
-  
-  ## Remove original timestamp columns
-  rd.final <- rd.final[, -c(1, 2)]
-  
-  ## Make timestamp column the first column
-  n.cols <- ncol(rd.final)
-  rd.final <- rd.final[, c(n.cols, 1:(n.cols - 1))]
-  
-  ## Save final rain data to database
-  if (write.to.mdb) {
-    mdb <- "//moby/miacso$/Daten/ACCESS/Regen/Regendaten_BWB_ab2008.mdb"
-    tbl <- "tblVal_2007_withoutUserDecision_DLS" #"tblVal_2011_lastTwoDays"
-    tbl <- hsPutTable(mdb, rd.final, tbl)
-    
-    ## Append new data to "total" table
-    hsSqlQuery(mdb, paste (
-      "INSERT INTO tbl_Regen_alleEZG_05min (",
-      "  Zeitstempel, Bln_IV, Bln_V, Bln_IX, Bln_X, Bln_XI, Nkn_I, Nkn_II, Chb_I, Wil, Wil_a, Lbg, Hlg, Zhl_I, K?p_I_f, Kar, Spa_II",
-      ")",
-      "SELECT",
-      "  myDateTime,  BlnIV,  BlnV,  BlnIX,  BlnX,  BlnXI,  NknI,  NknII,  ChbI,  Wil, Wila,  Lbg, Hlg, ZhlIe, KoepIf,  Kar, SpaII",
-      "FROM", tbl))
-  }
-  
-  ## Save new correction dataset to csv files
-  if (write.to.csv) {
-    write.csv2(cd, file = file.path(xls.dir, "hsValCorrDataNew2.csv"))
-  }
-  
-  ##
-  ## Manually: write screen output to hsValLog.txt...
-  ##
 }
 
 # Prepare rain series for InfoWorks ============================================
