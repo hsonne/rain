@@ -5,31 +5,30 @@ library(lattice)
 library(kwb.db) # for hsSqlQuery
 library(kwb.datetime) # for hsDateStr
 
+## Idea of a good validation procedure =========================================
+##
+## 01. Load raw rain signals from xls -> rd.orig
+## 02. Convert rd.orig to list form -> rd.list
+## 03. Write rd.list to mdb::tbl_1_RawSignal
+##
+## 04. Load daily correction values -> cd.orig
+## 05./06. Write correction data (in "long" format) to mdb::tbl_2_CorrPerDay
+##
+## 07. Auto-validation(rd, cd) -> negative correction values in rd.diff
+## 08. rd.diff$comment <- "auto-val in R"
+## 09. Write rd.diff to mdb::tbl_3_CorrSignal
+##
+## 10. Go through list of days that could not be auto-validated in step 07:
+##     Find calibration/false signals manually and extend tbl_3_CorrSignals
+##     accordingly
+##
+## 11. Prepare a text file (csv) in which gauge failures are listed
+## 12. Load gauge failure information from file prepared in step 11 -> fi
+## 13. Write fi to mdb::tbl_4_Failure
+
 # Rain validation of BWB rain data (provided in xls-files) =====================
 if (FALSE)
 {
-  ## Idea of a good validation procedure:
-  ##
-  ## 01. Load raw rain signals from xls -> rd.orig
-  ## 02. Convert rd.orig to list form -> rd.list
-  ## 03. Write rd.list to mdb::tbl_1_RawSignal
-  ##
-  ## 04. Load daily correction values -> cd.orig
-  ## 05. Convert cd.orig to list form -> cd.list
-  ## 06. Write cd.list to mdb::tbl_2_CorrPerDay
-  ##
-  ## 07. Auto-validation(rd, cd) -> negative correction values in rd.diff
-  ## 08. rd.diff$comment <- "auto-val in R"
-  ## 09. Write rd.diff to mdb::tbl_3_CorrSignal
-  ##
-  ## 10. Go through list of days that could not be auto-validated in step 07:
-  ##     Find calibration/false signals manually and extend tbl_3_CorrSignals
-  ##     accordingly
-  ##
-  ## 11. Prepare a text file (csv) in which gauge failures are listed
-  ## 12. Load gauge failure information from file prepared in step 11 -> fi
-  ## 13. Write fi to mdb::tbl_4_Failure
-  
   xls.dir <- .xlsdir(home = FALSE)
   write.to.mdb <- FALSE
   write.to.csv <- FALSE
@@ -46,47 +45,48 @@ if (FALSE)
     save(rd.orig, file = file)
   }
   
-  ## Step 02: Convert rd.orig to list form -> rd.list.
-  ## Step 02a: append an additional date column; this will facilitate manual
-  ##           browsing through the database table for wrong signals.
-  ## Step 02b: append an additional column indicating if timestamp belongs to
-  ##           the summer time interval in which daylight saving time (DST) is
-  ##           active. So we are able to create a primary key for the mdb table.
-  rd.list <- rainToLongFormat(cbind(rd.orig, additionalTimeColumns(rd.orig)))
-  
-  ## Step 03: Write rd.list to mdb::tbl_1_RawSignal and set primary key
-  if (write.to.mdb) {
-    mdb <- file.path(xls.dir, "rainval.mdb")
-    columns <- c("gauge", "tDate_BWB", "tBeg_DST", "tBeg_UTCp1",
-                 "tBeg_BWB", "tEnd_BWB", "raw_mm")
-    tbl <- hsPutTable(mdb, rd.list[, columns], "tbl_1_RawSignal")
-    #hsSetPrimaryKey(mdb, tbl, c("gauge", "tBeg_DST", "tBeg_BWB"))
-    hsSetPrimaryKey(mdb, tbl, c("gauge", "tBeg_UTCp1"))
-  }
-  
   ## Step 04: Load daily correction values -> cd.orig
   cd.orig <- readBwbRainCorrection(paths$xls.cd, zerolines.rm = TRUE, dbg = TRUE)
-  
-  ## Step 05: Convert cd.orig to list form -> cd.list
-  cd.list <- corrToLongFormat(cd.orig)
-  
-  ## Step 06: Write cd.list to mdb::tbl_2_CorrPerDay
-  if (write.to.mdb) {
-    tbl <- hsPutTable(mdb, cd.list, "tbl_2_CorrPerDay")
-    hsSetPrimaryKey(mdb, tbl, c("gauge", "tDate_BWB"))
-  }
-  
+
   ## Step 07: Auto-validation(rd, cd) -> negative correction values in rd.diff
   system.time(out <- capture.output(
     corr <- doRainValidation(rd = rd.orig, cd = cd.orig, ask = FALSE)
   ))
   
-  corr.rdata <- file.path(.testdir(), "corr.RData")
+  cases1 <- rbindAll(corr$RESULT)
+  cases2 <- kwb.rain::getCorrectionCases(cd.orig, rd.orig)
   
-  #cases <- rbindAll(corr$RESULT)
+  stopifnot(identical(cases1, cases2[1:3]))
+
+  corr.rdata <- file.path(.testdir(), "corr.RData")
   #save(corr, out, cases, file = corr.rdata)
   identical(corr, getObjectFromRDataFile(corr.rdata, "corr"))
   identical(out, getObjectFromRDataFile(corr.rdata, "out"))
+  
+  if (write.to.mdb) {
+    ## Step 02: Convert rd.orig to list form -> rd.list.
+    ## Step 02a: append an additional date column; this will facilitate manual
+    ##           browsing through the database table for wrong signals.
+    ## Step 02b: append an additional column indicating if timestamp belongs to
+    ##           the summer time interval in which daylight saving time (DST) is
+    ##           active. So we are able to create a primary key for the mdb table.
+    rd.list <- rainToLongFormat(cbind(rd.orig, additionalTimeColumns(rd.orig)))
+  
+    ## Step 03: Write rd.list to mdb::tbl_1_RawSignal and set primary key
+    mdb <- file.path(xls.dir, "rainval.mdb")
+    
+    columns <- c("gauge", "tDate_BWB", "tBeg_DST", "tBeg_UTCp1",
+                 "tBeg_BWB", "tEnd_BWB", "raw_mm")
+    
+    tbl <- hsPutTable(mdb, rd.list[, columns], "tbl_1_RawSignal")
+    
+    #hsSetPrimaryKey(mdb, tbl, c("gauge", "tBeg_DST", "tBeg_BWB"))
+    hsSetPrimaryKey(mdb, tbl, c("gauge", "tBeg_UTCp1"))
+
+    ## Step 05/06: Write correction data (in "long" format) to mdb::tbl_2_CorrPerDay
+    tableName <- hsPutTable(mdb, corrToLongFormat(cd.orig), "tbl_2_CorrPerDay")
+    hsSetPrimaryKey(mdb, tableName, c("gauge", "tDate_BWB"))
+  }
   
   ## Step 08: rd.diff$comment <- "auto-val in R"
   corr$rd.diff$comment <- "auto-val in R"
@@ -102,7 +102,9 @@ if (FALSE)
               main = "Modifications done during rain validation")
   
   ## - 10b: Print table of rain heights per day to pdf
-  plotDailyRainHeightTable(rd.orig[, -1], landscape = FALSE, ppp = 2, cex = 0.5)
+  kwb.rain::plotDailyRainHeightTable(
+    rd.orig[, -1], landscape = FALSE, ppp = 2, cex = 0.5
+  )
   
   ## - 10c: Plot rain event overview to pdf; this file shall be used to decide
   ##   whether signals look like calibration signals.
@@ -396,8 +398,8 @@ rainValidation <- function
           
           RESULT[[length(RESULT) + 1]] <- data.frame(
             gauge = gauge, 
-            day = dayOfCorrection, 
-            correction = cdg[hsDateStr(cdg[[1]]) == dayOfCorrection, gauge],
+            day = as.Date(dayOfCorrection), 
+            corr_mm = cdg[hsDateStr(cdg[[1]]) == dayOfCorrection, gauge],
             stringsAsFactors = FALSE
           )
           
