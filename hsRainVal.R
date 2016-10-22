@@ -5,6 +5,8 @@ library(lattice)
 library(kwb.db) # for hsSqlQuery
 library(kwb.datetime) # for hsDateStr
 
+# Github test: do you recognise me?
+
 # .testdir ---------------------------------------------------------------------
 .testdir <- function()
 {
