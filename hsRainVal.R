@@ -1,5 +1,5 @@
 library(kwb.utils) # for hsMatrixToListForm
-library(kwb.read) # for hsGetBwbRainData, readBwbRainCorrection
+library(kwb.read) # for readBwbRainData, readBwbRainCorrection
 library(kwb.misc)
 library(lattice)
 library(kwb.db) # for hsSqlQuery
@@ -41,7 +41,7 @@ if (FALSE)
   if (file.exists(file)) {
     rd.orig <- kwb.utils::getObjectFromRDataFile(file, "rd.orig")
   } else {
-    rd.orig <- hsGetBwbRainData(paths$xls.rd, use2007Driver = TRUE)
+    rd.orig <- readBwbRainData(paths$xls.rd, use2007Driver = TRUE)
     save(rd.orig, file = file)
   }
   
@@ -1486,7 +1486,7 @@ if (FALSE)
   paths <- getPathsForRainValidation("//moby/miacso$/Daten/Extern/BWB/Regen_BWB/2_Prep")
   
   ## get data with new (character!) column tBeg_WT (winter time)
-  rd <- hsGetBwbRainData(paths$xls.rd, toUTC=TRUE, toWT = TRUE)
+  rd <- readBwbRainData(paths$xls.rd, toUTC=TRUE, toWT = TRUE)
   
   ## Save rain data to table "tblTmpRaw" in mdb by overwriting the existing one
   tbl <- "tblTmpRaw"
@@ -1502,7 +1502,7 @@ if (FALSE)
   ## ATTENTION! In "Regen_2008_hs.xlsx" data of Bln X starts with
   ## "[-11059] No Good Data For Calculation". This has the effect that when
   ## getting the file content, column "BlnX" is treated as character. In this
-  ## specific case I went through the commands in hsGetBwbRainData manually
+  ## specific case I went through the commands in readBwbRainData manually
   ## and did the transformation to numeric (after replacing "," with ".")!
 }
 
