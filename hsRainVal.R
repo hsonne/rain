@@ -6,6 +6,7 @@ library(kwb.db) # for hsSqlQuery
 library(kwb.datetime) # for hsDateStr
 
 # Github test: do you recognise me?
+# git config user.email "hauke.sonnenberg@kompetenz-wasser.de"
 
 # .testdir ---------------------------------------------------------------------
 .testdir <- function()
