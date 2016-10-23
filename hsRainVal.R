@@ -40,14 +40,19 @@ if (FALSE)
   
   if (file.exists(file)) {
     rainData <- kwb.utils::getObjectFromRDataFile(file, "rainData")
+    corrData <- kwb.utils::getObjectFromRDataFile(file, "corrData")
   } else {
-    rainData <- readBwbRainData(paths$xls.rd, use2007Driver = TRUE)
-    save(rainData, file = file)
+    rainData <- readBwbRainData(
+      file = paths$xls.rd, use2007Driver = TRUE, sep = ",", dec = ".",
+      format = "%d/%m/%y %H:%M:%S"
+    )
+    ## Step 04: Load daily correction values -> cd.orig
+    corrData <- readBwbRainCorrection(
+      file = paths$xls.cd, zerolines.rm = TRUE, dbg = TRUE, country = "en"
+    )
+    save(rainData, corrData, file = file)
   }
   
-  ## Step 04: Load daily correction values -> cd.orig
-  corrData <- readBwbRainCorrection(paths$xls.cd, zerolines.rm = TRUE, dbg = TRUE)
-
   ## Step 07: Auto-validation(rd, cd) -> negative correction values in rd.diff
   system.time(out <- capture.output(
     corr <- doRainValidation(rainData, corrData, ask = FALSE)
@@ -351,7 +356,7 @@ rainValidation <- function
 )
 {
   bak <- corrData
-  corrData <- removeColumns(corrData, "Lbg")
+  corrData <- removeColumns(corrData, c("Lbg", "Wila"))
   corrData$Wil <- 0.0
   
   cases <- kwb.rain::getCorrectionCases(corrData, rainData)
@@ -362,18 +367,9 @@ rainValidation <- function
   
   # Loop through the cases
   results <- lapply(seq_len(nrow(cases)), function(i) {
-    
-    gauge <- selectColumns(cases[i, ], "gauge")
-    dayOfCorrection <- selectColumns(cases[i, ], "day")
-    
+
     ## Validate rain data of this day and gauge
-    validateRainDay(
-      rdd = rd[hsDateStr(rd[[1]]) == dayOfCorrection, ],
-      cdd = cd[hsDateStr(cd[[1]]) == dayOfCorrection, ],
-      gauge = gauge,
-      dbg = dbg, 
-      ...
-    ) 
+    validateRainDay(rainData, corrData, case, dbg = dbg, ...)
   })
   
   list(
@@ -386,7 +382,7 @@ rainValidation <- function
 # showOverviewMessages ---------------------------------------------------------
 showOverviewMessages <- function(gauges, gauges.corr, cases)
 {
-  skipMessage <- function(x, y) sprintf("*** Skipping gauge '%s' (%s)<" , x, y)
+  skipMessage <- function(x, y) sprintf("*** Skipping gauge '%s' (%s)" , x, y)
   
   gauges.skip <- setdiff(gauges, gauges.corr)
   
@@ -411,18 +407,21 @@ showOverviewMessages <- function(gauges, gauges.corr, cases)
 # catLines ---------------------------------------------------------------------
 catLines <- function(x)
 {
-  cat(paste0(x, collapse = "\n"), "\n")
+  cat(paste0(paste0(x, collapse = "\n"), "\n"))
 }
 
 # validateRainDay --------------------------------------------------------------
 validateRainDay <- function
 (
-  rdd,
-  ### data frame with rain data of one day for all gauges
-  cdd,
-  ### data frame with correction data of one day for all gauges (one row)
-  gauge,
-  ### gauge name
+  rainData,
+  corrData,
+  case,
+  # rdd,
+  # ### data frame with rain data of one day for all gauges
+  # cdd,
+  # ### data frame with correction data of one day for all gauges (one row)
+  # gauge,
+  # ### gauge name
   neighb = NULL,
   ### neighbour matrix
   devPdf = 0,
@@ -437,33 +436,28 @@ validateRainDay <- function
   ...
 )
 {
-  ## init result variables
-  rd.diff <- NULL ## diff record for rain data
-  cd.diff <- NULL ## diff record for correction data
+  day <- selectColumns(case, "day")
   
-  day <- selectColumns(cdd, "tDate_BWB")
-  cor <- selectColumns(cdd, gauge) ## correction value
-  heights <- selectColumns(rdd, gauge)
+  rdd <- rainData[hsDateStr(rainData[[1]]) == day, ]
+  cdd <- corrData[hsDateStr(corrData[[1]]) == day, ]
   
-  ## Is the sum of rain equal to the correction value?
-  dbgInfo <- data.frame(
-    gauge = gauge,
-    day = day,
-    toCorrect = cor,
-    mmPerDay = sum(heights, na.rm = TRUE),
-    numNA = sum(is.na(heights))
-  )
-  
+  heights <- selectColumns(rdd, selectColumns(case, "gauge"))
+
   ## The sum should not be less than the value to correct!
-  if (dbgInfo$mmPerDay + diff.thresh < cor) {
-    dbgInfo$analysis <- "Less rain available than to correct!"
-    dbgInfo$action <- "?"
-    cat(formatDebugInfo(dbgInfo))
+  digits <- 1
+  rain_mm <- round(selectColumns(case, "rain_mm"), digits)
+  corr_mm <- round(selectColumns(case, "corr_mm"), digits)
+  
+  if (rain_mm < corr_mm) {
+    case$analysis <- "Less rain available than to correct!"
+    case$action <- "?"
+    cat(formatDebugInfo(case))
   }
-  else if (abs(dbgInfo$mmPerDay - cor) < diff.thresh) {
-    dbgInfo$analysis <- "toCorrect == mmPerDay"
-    dbgInfo$action <- "All signals of day removed"
-    cat(formatDebugInfo(dbgInfo))
+  ## Is the sum of rain equal to the correction value?
+  else if (all.equal(rain_mm, corr_mm)) {
+    case$analysis <- "corr_mm == rain_mm"
+    case$action <- "All signals of day removed"
+    cat(formatDebugInfo(case))
     
     ## not equal to zero
     ne.zero <- (defaultIfNA(selectColumns(rdd, gauge), 0) != 0)
@@ -510,7 +504,7 @@ validateRainDay <- function
     rd.diff = rd.diff,
     cd.diff = cd.diff,
     dbgRain = hsAddMissingCols(dbgInfo, colNames = c(
-      "gauge", "day", "toCorrect", "mmPerDay", "numNA", "analysis", "action"
+      "gauge", "day", "corr_mm", "rain_mm", "numNA", "analysis", "action"
     ))
   )
 }
@@ -522,9 +516,9 @@ formatDebugInfo <- function(di, dbg = FALSE)
   
   paste(
     sprintf("\nGauge '%s' on %s", di$gauge, di$day),
-    sprintf(" * Correction: %8.2f mm", di$toCorrect),
+    sprintf(" * Correction: %8.2f mm", di$corr_mm),
     sprintf(" * Rain sum:   %8.2f mm (%d-times NA, treated as 0)",
-            di$mmPerDay, di$numNA),
+            di$rain_mm, di$numNA),
     sprintf(" -> %s", di$analysis),
     sprintf(" -> %s\n", di$action),
     sep = "\n"
@@ -590,7 +584,7 @@ userValidation <- function
   ## Is the correction value met by the sum of one or more highest signals?
   if (nmet == 1) {
     if (imet == 1) {
-      dbgInfo$analysis <- "toCorrect == highest sig"
+      dbgInfo$analysis <- "corr_mm == highest sig"
       dbgInfo$action <- "Highest signal removed"
       cat(formatDebugInfo(dbgInfo))
       #cat(sprintf(" * Correction value met by highest signal.\n", imet))
@@ -598,14 +592,14 @@ userValidation <- function
       wrong <- idx[1]
     }
     else {
-      dbgInfo$analysis <- sprintf("toCorrect == sum(%d highest sigs)", imet)
+      dbgInfo$analysis <- sprintf("corr_mm == sum(%d highest sigs)", imet)
       cat(formatDebugInfo(dbgInfo))
       #cat(sprintf(" * Correction value met by sum of %d highest signals.\n", imet))
       prp <- idx[1:nmet]
     }
   }
   else if (nmet == 0) {
-    dbgInfo$analysis <- "toCorrect != sum(highest sigs)"
+    dbgInfo$analysis <- "corr_mm != sum(highest sigs)"
     cat(formatDebugInfo(dbgInfo))
     #cat(sprintf(" * Correction value is not met by any sum of highest signals.\n"))
   }
