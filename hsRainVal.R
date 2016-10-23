@@ -39,18 +39,18 @@ if (FALSE)
   file <- file.path(.testdir(), "rain.RData")
   
   if (file.exists(file)) {
-    rd.orig <- kwb.utils::getObjectFromRDataFile(file, "rd.orig")
+    rainData <- kwb.utils::getObjectFromRDataFile(file, "rainData")
   } else {
-    rd.orig <- readBwbRainData(paths$xls.rd, use2007Driver = TRUE)
-    save(rd.orig, file = file)
+    rainData <- readBwbRainData(paths$xls.rd, use2007Driver = TRUE)
+    save(rainData, file = file)
   }
   
   ## Step 04: Load daily correction values -> cd.orig
-  cd.orig <- readBwbRainCorrection(paths$xls.cd, zerolines.rm = TRUE, dbg = TRUE)
+  corrData <- readBwbRainCorrection(paths$xls.cd, zerolines.rm = TRUE, dbg = TRUE)
 
   ## Step 07: Auto-validation(rd, cd) -> negative correction values in rd.diff
   system.time(out <- capture.output(
-    corr <- doRainValidation(rd = rd.orig, cd = cd.orig, ask = FALSE)
+    corr <- doRainValidation(rainData, corrData, ask = FALSE)
   ))
   
   cases1 <- rbindAll(corr$RESULT)
@@ -285,9 +285,9 @@ args_file.choose <- function(xls.dir)
 # doRainValidation -------------------------------------------------------------
 doRainValidation <- function
 (
-  rd,
+  rainData,
   ### rain data
-  cd,
+  corrData,
   ### correction data
   ask = FALSE,
   ### passed to rainValidation
@@ -301,13 +301,13 @@ doRainValidation <- function
     distanceToNeighbour(getGaugeDistances())
   } else {
     message("no neighbour data available, using random neighbours!")
-    randomNeighbours(gauges = names(rd)[-(1:2)])
+    randomNeighbours(gauges = names(rainData)[-(1:2)])
   }
   
   ## Call the rain validation routine
   corr <- rainValidation(
-    rd = rd,
-    cd = cd,
+    rainData,
+    corrData,
     neighb = neighb, # passed to validateRainDay
     devPdf = kwb.base::hsPdfDev(), # passed to validateRainDay
     plotperneighb = FALSE,
@@ -338,103 +338,80 @@ randomNeighbours <- function(gauges)
 # rainValidation ---------------------------------------------------------------
 rainValidation <- function
 (
-  rd,
+  rainData,
   ### data frame with rain data
-  cd,
+  corrData,
   ### data frame with rain correction data
-  gauges = names(rd)[-(1:2)],
+  gauges = names(rainData)[-(1:2)],
   ### names of gauges to be validated. Default: names of columns 3:ncol(rd)
-  columns = c(time = "tBeg_BWB", date = "tDate_BWB"),
-  ### named vector of column names. 1. (named "time"): Name of date and time
-  ### column in \code{rd}, 2. (named "date"): Date column in \cde{cd}
   dbg = FALSE,
   ### if \code{TRUE} debug messages are shown
   ...
   ### further arguments passed to validateRainDay, such as neighb, devPdf, ask
 )
 {
-  RESULT <- list()
+  bak <- corrData
+  corrData <- removeColumns(corrData, "Lbg")
+  corrData$Wil <- 0.0
   
-  dbgRain <- data.frame()
+  cases <- kwb.rain::getCorrectionCases(corrData, rainData)
+
+  out <- capture.output(showOverviewMessages(gauges, gauges.corr = names(corrData), cases))
+  catLines(out)
+  head(out, 20)
   
-  ## Init result data frames
-  rd.diff <- NULL
-  cd.diff <- NULL
-  
-  ## We need the correction data only in the time interval and for the gauges
-  ## to correct
-  daystrings.rd <- hsDateStr(selectColumns(rd, columns["time"]))
-  daystrings.cd <- as.character(selectColumns(cd, columns["date"]))
-  
-  # Select rows and columns
-  cd <- cd[daystrings.cd %in% unique(daystrings.rd), ]
-  cd <- selectColumns(cd, c(columns["date"], gauges))
-  
-  ## Loop through the rain gauges
-  for (gauge in gauges) {
+  # Loop through the cases
+  results <- lapply(seq_len(nrow(cases)), function(i) {
     
-    ## Is correction data available for this gauge?
-    if (! (gauge %in% names(cd))) {
-      message(sprintf(
-        "Skipping gauge '%s' (No correction data available)...\n", gauge
-      ))
-    }
-    else {
-      
-      ## Find the days for which corrections are registered for the gauge
-      cdg <- cd[defaultIfNA(selectColumns(cd, gauge), 0) != 0, ]
-      
-      if (nrow(cdg) == 0) {
-        cat(sprintf("*** No corrections needed for gauge '%s'.\n", gauge))
-      }
-      else {
-        cat(sprintf("\n*** Corrections to be done for gauge '%s':\n", gauge))
-        print(selectColumns(cdg, c(columns["date"], gauge)))
-        
-        ### Loop through days of correction
-        daysOfCorrection <- hsDateStr(cdg[[1]])
-        
-        for (dayOfCorrection in daysOfCorrection) {
-          
-          RESULT[[length(RESULT) + 1]] <- data.frame(
-            gauge = gauge, 
-            day = as.Date(dayOfCorrection), 
-            corr_mm = cdg[hsDateStr(cdg[[1]]) == dayOfCorrection, gauge],
-            stringsAsFactors = FALSE
-          )
-          
-          ## Validate rain data of this day and gauge
-          res <- validateRainDay(
-            rdd = rd [hsDateStr(rd [[1]]) == dayOfCorrection, ],
-            cdd = cdg[hsDateStr(cdg[[1]]) == dayOfCorrection, ],
-            gauge,
-            dbg = dbg
-            , ...
-          )
-          
-          ## Append debug information to dbgRain
-          if (! is.null(res$dbgRain)) {
-            dbgRain <- rbind(dbgRain, res$dbgRain)
-          }
-          
-          ## Append differences in rain signals to rd.diff
-          if (! is.null(res$rd.diff)) {
-            printIf(dbg, res$rd.diff, "\nrd.diff")
-            rd.diff <- rbind(rd.diff, data.frame(gauge = gauge, res$rd.diff))
-          }
-          
-          ## Append differences in correction data cd.diff
-          if (! is.null(res$cd.diff)) {
-            printIf(dbg, res$cd.diff, "\ncd.diff")
-            cd.diff <- rbind(cd.diff, data.frame(gauge = gauge, res$cd.diff))
-          }
-        }
-      }
-    }
-  } ## next gauge
+    gauge <- selectColumns(cases[i, ], "gauge")
+    dayOfCorrection <- selectColumns(cases[i, ], "day")
+    
+    ## Validate rain data of this day and gauge
+    validateRainDay(
+      rdd = rd[hsDateStr(rd[[1]]) == dayOfCorrection, ],
+      cdd = cd[hsDateStr(cd[[1]]) == dayOfCorrection, ],
+      gauge = gauge,
+      dbg = dbg, 
+      ...
+    ) 
+  })
   
-  list(rd.diff = rd.diff, cd.diff = cd.diff, dbgRain = dbgRain,
-       RESULT = RESULT)
+  list(
+    rd.diff = rbindAll(lapply(results, "[[", "rd.diff")), 
+    cd.diff = rbindAll(lapply(results, "[[", "cd.diff")), 
+    dbgRain = rbindAll(lapply(results, "[[", "dbgRain"))
+  )
+}
+
+# showOverviewMessages ---------------------------------------------------------
+showOverviewMessages <- function(gauges, gauges.corr, cases)
+{
+  skipMessage <- function(x, y) sprintf("*** Skipping gauge '%s' (%s)<" , x, y)
+  
+  gauges.skip <- setdiff(gauges, gauges.corr)
+  
+  if (length(gauges.skip) > 0) {
+    catLines(skipMessage(gauges.skip, "no correction data available"))
+    gauges <- setdiff(gauges, gauges.skip)
+  }
+  
+  gauges.ok <- setdiff(gauges, unique(cases$gauge))
+  
+  if (length(gauges.ok) > 0) {
+    catLines(skipMessage(gauges.ok, "no corrections required"))
+    gauges <- setdiff(gauges, gauges.ok)
+  }
+  
+  for (gauge in gauges) {
+    cat(sprintf("*** Corrections to be done for gauge '%s':\n", gauge))
+    print(cases[cases$gauge == gauge, 2:3]) 
+  }
+}
+
+# catLines ---------------------------------------------------------------------
+catLines <- function(x)
+{
+  cat(paste0(x, collapse = "\n"), "\n")
 }
 
 # validateRainDay --------------------------------------------------------------
