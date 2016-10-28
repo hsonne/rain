@@ -407,10 +407,49 @@ showOverviewMessages <- function(gauges, gauges.corr, cases)
   }
 }
 
-# catLines ---------------------------------------------------------------------
-catLines <- function(x)
+# prevalidate ------------------------------------------------------------------
+prevalidate <- function(cases, diff.digits = 4, tolerance = 0.0001)
 {
-  cat(paste0(paste0(x, collapse = "\n"), "\n"))
+  rain_mm <- selectColumns(cases, "rain_mm", 1)
+  corr_mm <- selectColumns(cases, "corr_mm", 1)
+ 
+  cases$diff <- round(rain_mm - corr_mm, diff.digits)
+  cases$absdiff <- round(abs(cases$diff), diff.digits)
+  
+  cases$analysis <- ""
+  cases$action <- ""
+  
+  ## Is the sum of rain (almost) equal to the correction value?
+  selected <- almostEqual(rain_mm, corr_mm, tolerance = 0.001)
+  
+  cases <- checkAndSet(
+    cases, selected, "corr_mm == rain_mm", "All signals of day removed"
+  )
+  
+  selected <- (! selected & (rain_mm < corr_mm))
+  
+  cases <- checkAndSet(
+    cases, selected, "Less rain available than to correct!", "?"
+  )
+  
+  cases
+}
+
+# almostEqual ------------------------------------------------------------------
+almostEqual <- function(x, y, tolerance = 1e-8)
+{
+  stopifnot(length(x) == length(y))
+  
+  abs(x - y) < tolerance
+}
+
+# checkAndSet ------------------------------------------------------------------
+checkAndSet <- function(cases, selected, analysis, action)
+{
+  cases$analysis[selected] <- analysis
+  cases$action[selected] <- action
+  
+  cases
 }
 
 # validateRainDay --------------------------------------------------------------
