@@ -302,13 +302,8 @@ doRainValidation <- function
   ## Prepare pdf device but do not set current device to pdf device
   file.pdf <- preparePdfIf(to.pdf, makeCurrent = FALSE)
   
-  neighb <- if (file.exists(kwb.read::mdb_rain_meta())) {
-    distanceToNeighbour(getGaugeDistances())
-  } else {
-    message("no neighbour data available, using random neighbours!")
-    randomNeighbours(gauges = names(rainData)[-(1:2)])
-  }
-  
+  neighb <- getNeighbourMatrix(gauges = names(rainData)[-(1:2)])
+
   ## Call the rain validation routine
   corr <- rainValidation(
     rainData,
@@ -323,12 +318,20 @@ doRainValidation <- function
     dbg = FALSE
   )
   
-  if (to.pdf) {
-    dev.off(which = hsPdfDev())
-    hsShowPdf(file.pdf)
-  }
-  
+  finishAndShowPdfIf(to.pdf, file.pdf, which = kwb.base::hsPdfDev())
+
   corr
+}
+
+# getNeighbourMatrix -----------------------------------------------------------
+getNeighbourMatrix <- function(gauges = NULL)
+{
+  if (file.exists(kwb.read::mdb_rain_meta())) {
+    distanceToNeighbour(getGaugeDistances())
+  } else {
+    message("no neighbour data available, using random neighbours!")
+    randomNeighbours(gauges)
+  }
 }
 
 # randomNeighbours -------------------------------------------------------------
