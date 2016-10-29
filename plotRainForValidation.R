@@ -48,6 +48,26 @@ plotRainForValidation <- function
   }
 }
 
+# checkArgumentsOrStop ---------------------------------------------------------
+checkArgumentsOrStop <- function(label, dim)
+{
+  ## If label is given it must contain as many elements as there are rows
+  ## in rd
+  if (! is.null(label) && length(label) != dim.rain[1]) {
+    stop("label must contain as many elements as there are rows in rd!")
+  }
+}
+
+# rowsToPlot -------------------------------------------------------------------
+rowsToPlot <- function(plotperneighb, n.cols)
+{
+  if (plotperneighb) {
+    n.cols - 1 # one plot for each (non-time) column
+  } else {
+    1 + (n.cols > 2) # no neighbours: 1, any neighbours: 2
+  }
+}
+
 # plotRainAtGauge --------------------------------------------------------------
 plotRainAtGauge <- function
 (
@@ -92,6 +112,32 @@ plotRainAtGauge <- function
   
   # Return the general arguments so that they can be reused
   genargs
+}
+
+# prepareMatrix ----------------------------------------------------------------
+prepareMatrix <- function(rain.mm, rdiff = NULL)
+{
+  if (is.null(rdiff)) {
+    valid.mm <- rain.mm
+  } else {
+    valid.mm <- addAtIndices(
+      x = rain.mm, 
+      indices = selectColumns(rdiff, "idx"), 
+      values = selectColumns(rdiff, "diff")
+    )
+  }
+  
+  matrix(c(valid.mm, rain.mm - valid.mm), byrow = TRUE, nrow = 2)
+}
+
+# addAtIndices --------------------------------------------------------------
+addAtIndices <- function(x, indices, values)
+{
+  stopifnot(length(indices) == length(values))
+  
+  x[indices] <- x[indices] + values
+  
+  x
 }
 
 # toPlotTitle -----------------------------------------------------------------
@@ -181,50 +227,4 @@ allNeighboursInOnePlot <- function(rd, genargs, cex.legend)
     callWith(axis, constargs("axis_1"), 
              labels = datenames, at = seq_along(datenames))
   }
-}
-
-# checkArgumentsOrStop ---------------------------------------------------------
-checkArgumentsOrStop <- function(label, dim)
-{
-  ## If label is given it must contain as many elements as there are rows
-  ## in rd
-  if (! is.null(label) && length(label) != dim.rain[1]) {
-    stop("label must contain as many elements as there are rows in rd!")
-  }
-}
-
-# rowsToPlot -------------------------------------------------------------------
-rowsToPlot <- function(plotperneighb, n.cols)
-{
-  if (plotperneighb) {
-    n.cols - 1 # one plot for each (non-time) column
-  } else {
-    1 + (n.cols > 2) # no neighbours: 1, any neighbours: 2
-  }
-}
-
-# prepareMatrix ----------------------------------------------------------------
-prepareMatrix <- function(rain.mm, rdiff = NULL)
-{
-  if (is.null(rdiff)) {
-    valid.mm <- rain.mm
-  } else {
-    valid.mm <- addAtIndices(
-      x = rain.mm, 
-      indices = selectColumns(rdiff, "idx"), 
-      values = selectColumns(rdiff, "diff")
-    )
-  }
-  
-  matrix(c(valid.mm, rain.mm - valid.mm), byrow = TRUE, nrow = 2)
-}
-
-# addAtIndices --------------------------------------------------------------
-addAtIndices <- function(x, indices, values)
-{
-  stopifnot(length(indices) == length(values))
-  
-  x[indices] <- x[indices] + values
-  
-  x
 }
