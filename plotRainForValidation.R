@@ -17,10 +17,8 @@ plotRainForValidation <- function
   dateFormat = "%H:%M",
   ### date/time format with placeholders %d (day), %m (month), %y, %Y (year),
   ### %H (hour), %M (minute), %S (second). Default: "%H:%M"
-  cex.legend = 0.8,
-  ### scaling factor for legend
-  cex.barid = 0.5,
-  ### scaling factor for bar-id labels
+  cex = c(legend = 0.8, barid = 0.5),
+  ### legend: scaling factor for legend, barid: scaling factor for bar-id labels
   dbg = FALSE
 )
 {
@@ -32,8 +30,6 @@ plotRainForValidation <- function
   ## prepare matrix plot and restore old graphical parameters on exit
   oldpar <- par(mfrow = c(rowsToPlot(plotperneighb, dim.rain[2]), 1))
   on.exit(par(oldpar)) 
-  
-  cex <- c(legend = cex.legend, barid = cex.barid)
   
   genargs <- plotRainAtGauge(rd, rdiff, main, dateFormat, label, cex)
 

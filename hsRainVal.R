@@ -312,8 +312,7 @@ doRainValidation <- function
     devPdf = kwb.base::hsPdfDev(), # passed to validateRainDay
     plotperneighb = FALSE,
     num.neighb = 2,
-    cex.barid = 0.8,
-    cex.legend = 1.1,
+    cex = c(legend = 1.1, barid = 0.8),
     ask = ask, # passed to validateRainDay
     dbg = FALSE
   )
