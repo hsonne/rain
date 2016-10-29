@@ -22,24 +22,21 @@ plotRainForValidation <- function
   dbg = FALSE
 )
 {
-  ## number of rows/columns in rd
-  dim.rain <- dim(rd)
-  
-  checkArgumentsOrStop(label, dim.rain)
+  checkArgumentsOrStop(label, n.rows = nrow(rd))
 
   ## prepare matrix plot and restore old graphical parameters on exit
-  oldpar <- par(mfrow = c(rowsToPlot(plotperneighb, dim.rain[2]), 1))
+  oldpar <- par(mfrow = c(rowsToPlot(plotperneighb, n.cols = ncol(rd)), 1))
   on.exit(par(oldpar)) 
   
-  genargs <- plotRainAtGauge(rd, rdiff, main, dateFormat, label, cex)
+  args.plot <- plotRainAtGauge(rd, rdiff, main, dateFormat, label, cex)
 
   ## neighbours to plot?
-  if (dim.rain[2] > 2) {
+  if (ncol(rd) > 2) {
     
     ## One plot per neighbour?
     if (isTRUE(plotperneighb)) {
       
-      onePlotPerNeighbour(rd, genargs)
+      onePlotPerNeighbour(rd, args.plot)
     }
     else {
       
@@ -49,11 +46,11 @@ plotRainForValidation <- function
 }
 
 # checkArgumentsOrStop ---------------------------------------------------------
-checkArgumentsOrStop <- function(label, dim)
+checkArgumentsOrStop <- function(label, n.rows)
 {
   ## If label is given it must contain as many elements as there are rows
   ## in rd
-  if (! is.null(label) && length(label) != dim.rain[1]) {
+  if (! is.null(label) && length(label) != n.rows) {
     stop("label must contain as many elements as there are rows in rd!")
   }
 }
@@ -94,13 +91,13 @@ plotRainAtGauge <- function
   
   ## general arguments
   ## las = 3: axis labels always vertical to the axis
-  genargs <- arglist(constargs("barplot_2"), 
+  args.plot <- arglist(constargs("barplot_2"), 
                      cex.main = cex["legend"], names.arg = datenames)
   
   ## call the barplot function with general arguments, constant arguments and 
   ## specifig arguments
   x <- callWith(
-    barplot, genargs, constargs("barplot_1"), 
+    barplot, args.plot, constargs("barplot_1"), 
     height = height, ylim = .ylim(rain.mm), main = main
   )
   
@@ -111,7 +108,7 @@ plotRainAtGauge <- function
   }
   
   # Return the general arguments so that they can be reused
-  genargs
+  args.plot
 }
 
 # prepareMatrix ----------------------------------------------------------------
@@ -175,7 +172,7 @@ constargs <- function(id = NULL)
 }
 
 # onePlotPerNeighbour ----------------------------------------------------------
-onePlotPerNeighbour <- function(rd, genargs)
+onePlotPerNeighbour <- function(rd, args.plot)
 {
   for (i in seq(3, ncol(rd))) {
     
@@ -183,7 +180,7 @@ onePlotPerNeighbour <- function(rd, genargs)
     
     ## call the barplot function with general arguments added to arg list
     callWith(
-      barplot, genargs, constargs("barplot_3"),
+      barplot, args.plot, constargs("barplot_3"),
       height = height, ylim = .ylim(height), 
       main = paste("Neighbour:", names(rd)[i])
     )
@@ -199,7 +196,7 @@ onePlotPerNeighbour <- function(rd, genargs)
 }
 
 # allNeighboursInOnePlot -------------------------------------------------------
-allNeighboursInOnePlot <- function(rd, genargs, cex.legend)
+allNeighboursInOnePlot <- function(rd, args.plot, cex.legend)
 {
   gauges <- names(rd)[-(1:2)]
   
@@ -211,14 +208,14 @@ allNeighboursInOnePlot <- function(rd, genargs, cex.legend)
 
     main <- sprintf("Rain at nearest neighbour gauge: %s", gauges[1])
     
-    callWith(barplot, genargs, constargs("barplot_4"),
+    callWith(barplot, args.plot, constargs("barplot_4"),
              height = height, main = main, ylim = .ylim(height, step = 0.1))
   }
   else {
     
-    main <- sprintf("Rain signals of neighbours (%s)", collapsed(gauges, ", "))
+    main <- sprintf("Rain signals of neighbours (%s)", stringList(gauges))
 
-    datenames <- selectElements(genargs, "names.arg")
+    datenames <- selectElements(args.plot, "names.arg")
     
     callWith(boxplot, constargs("boxplot_1"), 
              x = height, ylim = .ylim(height), names = datenames, 

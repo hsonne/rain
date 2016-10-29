@@ -762,7 +762,7 @@ excludeMissing <- function(cols, cols.available = names(rdd))
   if (length(miscols) > 0) {
     
     warning(
-      "Missing column(s) in rain data: ", collapsed(hsQuoteChr(miscols), ", ")
+      "Missing column(s) in rain data: ", stringList(miscols)
     )
     
     cols <- setdiff(cols, miscols)
