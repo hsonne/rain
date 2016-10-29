@@ -43,12 +43,12 @@ if (FALSE)
     corrData <- kwb.utils::getObjectFromRDataFile(file, "corrData")
   } else {
     rainData <- readBwbRainData(
-      file = paths$xls.rd, use2007Driver = TRUE, sep = ",", dec = ".",
-      format = "%d/%m/%y %H:%M:%S"
+      file = paths$xls.rd, use2007Driver = TRUE, sep = ";", dec = ",",
+      format = "%d.%m.%y %H:%M:%S"
     )
     ## Step 04: Load daily correction values -> cd.orig
     corrData <- readBwbRainCorrection(
-      file = paths$xls.cd, zerolines.rm = TRUE, dbg = TRUE, country = "en"
+      file = paths$xls.cd, zerolines.rm = TRUE, dbg = TRUE, country = "de"
     )
     save(rainData, corrData, file = file)
   }
@@ -363,10 +363,18 @@ rainValidation <- function
   corrData$Wil <- 0.0
   
   cases <- kwb.rain::getCorrectionCases(corrData, rainData)
-
-  out <- capture.output(showOverviewMessages(gauges, gauges.corr = names(corrData), cases))
+  cases <- prevalidate(cases)
+  
+  x <- cases[cases$action == "", ]
+  
+  round(x$corr_mm - x$rain_mm, 4)
+  
+  out <- capture.output(
+    showOverviewMessages(gauges, gauges.corr = names(corrData), cases)
+  )
+  
   catLines(out)
-  head(out, 20)
+  head(out, 10)
   
   # Loop through the cases
   results <- lapply(seq_len(nrow(cases)), function(i) {
@@ -490,34 +498,16 @@ validateRainDay <- function
   rain_mm <- round(selectColumns(case, "rain_mm"), digits)
   corr_mm <- round(selectColumns(case, "corr_mm"), digits)
   
-  if (rain_mm < corr_mm) {
-    case$analysis <- "Less rain available than to correct!"
-    case$action <- "?"
-    cat(formatDebugInfo(case))
-  }
   ## Is the sum of rain equal to the correction value?
-  else if (all.equal(rain_mm, corr_mm)) {
-    case$analysis <- "corr_mm == rain_mm"
-    case$action <- "All signals of day removed"
-    cat(formatDebugInfo(case))
+  if (case$analysis == "corr_mm == rain_mm") {
     
-    ## not equal to zero
-    ne.zero <- (defaultIfNA(selectColumns(rdd, gauge), 0) != 0)
+    selected <- (defaultIfNA(rain_mm, 0) != 0)
     
-    rd.diff <- data.frame(
-      tBeg_BWB = rdd$tBeg_BWB[ne.zero],
-      tEnd_BWB = rdd$tEnd_BWB[ne.zero],
-      #diff_mm  = - round(rdd[ne.zero, gauge], rd.digits))
-      diff_mm  = - rdd[ne.zero, gauge]
-    )
-    
-    cd.diff <- data.frame(
-      tDate_BWB = cdd$tDate_BWB, 
-      diff_mm  = - cdd[[gauge]]
-    )
+    diffs <- getDiffs(selected)
   }
   else {
-    res <- userValidation(
+    
+    diffs <- userValidation(
       rdd = rdd, 
       cdd = cdd,
       gauge = gauge,
@@ -529,11 +519,11 @@ validateRainDay <- function
       dbgInfo = dbgInfo, 
       ...
     )
-    
-    rd.diff <- selectElements(res, "rd.diff")
-    cd.diff <- selectElements(res, "cd.diff")
-    dbgInfo <- selectElements(res, "dbgInfo")
   }
+  
+  rd.diff <- selectElements(diffs, "rd.diff") # "rain"
+  cd.diff <- selectElements(diffs, "cd.diff") # "corr"
+  #dbgInfo <- selectElements(res, "dbgInfo")
   
   ## Add original signals vs corrected signals to plot
   if (devPdf > 0) {
@@ -548,6 +538,33 @@ validateRainDay <- function
     dbgRain = hsAddMissingCols(dbgInfo, colNames = c(
       "gauge", "day", "corr_mm", "rain_mm", "numNA", "analysis", "action"
     ))
+  )
+}
+
+# getDiffs ---------------------------------------------------------------------
+getDiffs <- function
+(
+  rdd, cdd, selected, gauge, columns = c("tBeg_BWB", "tEnd_BWB", "tDate_BWB")
+)
+{
+  rain_mm <- selectColumns(rdd, gauge)
+  corr_mm <- selectColumns(cdd, gauge)
+  
+  list(
+    
+    rain = cbind(
+      selectColumns(resetRowNames(rdd[selected, ]), columns[1:2]),
+      diff_mm = - rain_mm[selected], # -sig
+      rain_mm = 0.0
+    ),
+    
+    corr = cbind(
+      selectColumns(resetRowNames(cdd[1, ]), columns[3], drop = FALSE),
+      diff_mm = - corr_mm, # -sig
+      corr_mm = 0.0
+    ),
+
+    dbgInfo = dbgInfo
   )
 }
 
@@ -662,53 +679,30 @@ userValidation <- function
       cols <- c("tBeg_BWB", gauge)
       
       ## If a neighbour matrix is given, select the two nearest neighbours, too
-      if (! is.null(neighb)) {
-        col.names <- paste("n", seq(1, num.neighb, 1), sep = "")
-        cols <- c(cols, neighb[gauge, col.names])
-        printIf(dbg, cols, "cols")
-        miscols <- setdiff(cols, names(rdd))
-        if (length(miscols) > 0) {
-          warning("Missing column(s) in rain data: ",
-                  paste(miscols, collapse = ", "))
-          cols <- setdiff(cols, miscols)
-        }
-      }
+      cols <- extendToNeighbours(cols, neighb, num.neighb, gauge)
+      cols <- excludeMissing(cols, cols.available = names(rdd))
       
-      answer <- "x"
-      hts <- rep(0.0, length(prp)) #NULL
-      txt <- sprintf("to correct: %0.2f mm\n", cor)
+      plotArgs <- list(
+        rd = rdd[, cols],
+        title = sprintf("to correct: %0.2f mm\n", cor),
+        rdiff = data.frame(idx = prp, diff = hts - rdd[prp, gauge]),
+        label = getLabels(n = nrow(rdd), indices = idx),
+        dbg = dbg,
+        ...
+      )
       
-      ## Repeat while the user did not confirm with Enter
-      while (answer != "") {
+      userHeights <- askRepeatedly(
+        askFunction = askForUserHeights,
+        runFunction = plotRainForValidation, 
+        runArgs = plotArgs
+      )
+      
+      if (! is.null(userHeights)) {
         
-        ## Plot rain series with proposed signals to remove indicated
-        rdiff <- data.frame(idx = prp, diff = hts - rdd[prp, gauge])
-        
-        plotRainForValidation(
-          rd = rdd[, cols],
-          title = txt, # ""
-          rdiff = rdiff, # prp, hts, cor
-          label = getLabels(n = nrow(rdd), indices = idx),
-          dbg = dbg,
-          ...
-        )
-        
-        cat("Accept (RET) or select signals to mark (ESC=quit):\n")
-        answer <- readline(": ")
-        
-        if (answer != "") {
-          
-          keysAndValues <- toKeysAndValues(answer)
-          
-          # signal ids
-          prp <- idx[as.integer(keysAndValues$keys)]
-          
-          # new signal heights
-          hts <- defaultIfNA(as.double(keysAndValues$values), 0.0)
-          
-        } # answer != "" 
-        
-      } # while (answer != "")
+        # signal ids and new signal heights
+        prp <- selectElements(idsAndHeights, "bars")
+        hts <- selectElements(idsAndHeights, "heights")
+      } 
       
     } # if (ask)
     else {
@@ -730,36 +724,52 @@ userValidation <- function
   if (length(wrong) > 0) {
     
     ## signals to be removed
-    #sig <- round(rdd[del, gauge], rd.digits)
-    #sig <- rdd[del, gauge]
     sig <- rdd[wrong, gauge] - valid # reduce signals by remaining heights
-    # print(sig)
-    
-    # diff record for rain data
-    rd.diff <- selectColumns(
-      resetRowNames(rdd[wrong, ]), c("tBeg_BWB", "tEnd_BWB")
-    )
-    rd.diff$diff_mm <- - sig
-    
-    # diff record for correction data
-    cd.diff <- selectColumns(
-      resetRowNames(cdd[1, ]), "tDate_BWB", drop = FALSE
-    )
-    cd.diff$diff_mm <- - sig
-    
-    ## Plot rain series with removed signal indicated
-    #     plotRainForValidation(
-    #       rd = rdd[, c("tBeg_BWB", gauge)],
-    #       title = sprintf("Removed: %0.2f mm (single signal)", sig),
-    #       #del,
-    #       dht, 
-    #       cor, 
-    #       dbg = dbg
-    #     )
+    diffs <- getDiffs(selected = wrong)    
   }
   
   ## Return diff records for rain and correction data
-  list(rd.diff = rd.diff, cd.diff = cd.diff, dbgInfo = dbgInfo)
+  diffs
+}
+
+## Plot rain series with removed signal indicated
+#     plotRainForValidation(
+#       rd = rdd[, c("tBeg_BWB", gauge)],
+#       title = sprintf("Removed: %0.2f mm (single signal)", sig),
+#       #del,
+#       dht, 
+#       cor, 
+#       dbg = dbg
+#     )
+
+# extendToNeighbours -----------------------------------------------------------
+extendToNeighbours <- function(cols, neighb = NULL, num.neighb = 0, gauge = "")
+{
+  if (! is.null(neighb)) {
+    
+    cols.neighb <- names(neighb)[seq_len(num.neighb)]
+    
+    cols <- c(cols, selectColumns(neighb[gauge, ], cols.neighb))
+  }
+  
+  cols
+}
+
+# excludeMissing ---------------------------------------------------------------
+excludeMissing <- function(cols, cols.available = names(rdd))
+{
+  miscols <- setdiff(cols, cols.available)
+  
+  if (length(miscols) > 0) {
+    
+    warning(
+      "Missing column(s) in rain data: ", collapsed(hsQuoteChr(miscols), ", ")
+    )
+    
+    cols <- setdiff(cols, miscols)
+  }
+  
+  cols
 }
 
 # getLabels --------------------------------------------------------------------
@@ -768,174 +778,6 @@ getLabels <- function(n, indices)
   labels <- rep(NA, n)
   labels[indices] <- seq_along(indices)
   labels
-}
-
-# plotRainForValidation --------------------------------------------------------
-plotRainForValidation <- function
-(
-  rd,
-  ### rain data with columns 1: timestamp, 2: gauge data, 3, ..., n: neighbour
-  ### gauges' data
-  title,
-  ### plot title
-  rdiff = NULL,
-  ### data frame containing indices and signal differences
-  label = NULL,
-  ### vector of labels
-  plotperneighb = FALSE,
-  ### one plot per neighbour?
-  nrowlab = 5,
-  ### number of label rows
-  dateFormat = "%H:%M",
-  ### date/time format with placeholders %d (day), %m (month), %y, %Y (year),
-  ### %H (hour), %M (minute), %S (second). Default: "%H:%M"
-  cex.legend = 0.8,
-  ### scaling factor for legend
-  cex.barid = 0.5,
-  ### scaling factor for bar-id labels
-  dbg = FALSE
-)
-{
-  ## Enter debug mode if dbg > 1
-  browser(expr = (dbg > 1))
-  
-  ## number of rows/columns in rd
-  n.rows <- nrow(rd)
-  n.cols <- ncol(rd)
-  
-  ## If label is given it must contain as many elements as there are rows
-  ## in rd
-  if (! is.null(label) && length(label) != n.rows) {
-    stop("label must contain as many elements as there are rows in rd!")
-  }
-  
-  ## prepare matrix plot
-  opar <- par(mfrow = c(ifelse(plotperneighb, n.cols - 1, 1 + (n.cols > 2)), 1))
-  on.exit(par(opar)) ## restore old graphical parameters on exit
-  
-  ## Prepare (2 x n)-matrix for barplot with n = number of rows in rd.
-  ## 1st row of m contains new (corrected) signal heights,
-  ## 2nd row of m contains the heights by which the original signals
-  ## were corrected.
-  m <- matrix(nrow = 2, ncol = n.rows)
-  vals <- rd[[2]]
-  vals[rdiff$idx] <- vals[rdiff$idx] + rdiff$diff
-  m[1, ] <- vals
-  m[2, ] <- rd[[2]] - m[1, ]
-  
-  ymax <- ceiling(max(rd[[2]], na.rm=TRUE))
-  
-  main <- paste(sprintf("Gauge: %s, date: %s\n",
-                        names(rd)[2], hsDateStr(rd[1, 1])),
-                #sprintf("to correct: %0.2f mm\n", cor),
-                #sprintf("marked: %0.2f mm", sum(rd[[2]]) - sum(height)),
-                sprintf("marked: %0.2f mm\n", sum(rdiff$diff)),
-                title, sep = "")
-  
-  datenames <- kwb.plot::niceLabels(format(rd[[1]], dateFormat), 12)
-  
-  #printIf(dbg, paste(highlight, collapse = ","), "highlight")
-  #printIf(dbg, cor, "cor")
-  #printIf(dbg, marked, "marked")
-  #printIf(dbg, paste(height, collapse = ","), "height")
-  printIf(dbg, ymax, "ymax")
-  printIf(dbg, m, "m")
-  printIf(dbg, main, "main")
-  
-  ## las = 3: axis labels always vertical to the axis
-  ## general arguments
-  genargs <- list(
-    cex.main = cex.legend,
-    names.arg = datenames,
-    ylab = "rain height in mm",
-    #adj = 1,
-    las = 3
-  )
-  
-  args <- list(
-    height = m,
-    space = 0,
-    ylim = c(0, ifelse(ymax == 0, 1, ymax)),
-    main = main,
-    adj = 1,
-    col = c("grey", "red")
-  )
-  
-  ## call the barplot function with general arguments added to arg list
-  mp <- callWith(barplot, args, genargs)
-  
-  ## label the bars
-  if (! is.null(label)) {
-    text(mp, (mp %% nrowlab + 1)*0.04 * ymax, labels = label, cex = cex.barid)
-  }
-  
-  ## neighbours to plot?
-  if (n.cols > 2) {
-    
-    ## One plot per neighbour?
-    if (isTRUE(plotperneighb)) {
-      
-      for (i in seq(2, n, 1)) {
-        
-        args <- list(
-          height = rd[[i + 1]],
-          space = 0,
-          ylim = c(0, ceiling(max(rd[[i + 1]]))),
-          col = "grey",
-          main = paste("Neighbour:", names(rd)[i + 1])
-        )
-        
-        ## call the barplot function with general arguments added to arg list
-        callWith(barplot, args, genargs)
-      }
-    }
-    else {
-      ## Create matrix with neighbour data
-      mat <- t(as.matrix(rd[, 3:n.cols]))
-      ymax <- 0.1 * ceiling(max(rd[, 3:n.cols]) / 0.1)
-      
-      catIf(dbg, "ymax:", ymax, "\n")
-      
-      ## barplot if only one neighbour, else boxplot
-      if (n.cols == 3) {
-        
-        #barcols <- rainbow(n.cols - 2)
-        
-        args <- list(
-          height = mat,
-          space = c(0, 0),
-          beside = TRUE,
-          #col = barcols,
-          main = sprintf("Rain at nearest neighbour gauge: %s", names(rd)[3]),
-          ylim = c(0, ymax)
-        )
-        
-        callWith(barplot, args, genargs)
-        
-        #         legend("topright",
-        #                legend = paste("Neighbour ", 1:(n.cols-2), ": ",
-        #                               names(rd)[3:n.cols], sep = ""),
-        #                cex = cex.legend,
-        #                fill = barcols)
-      }
-      else {
-        
-        boxplot(
-          x = mat,
-          boxwex = 1,
-          names = datenames,
-          las = 3,
-          xaxt = "n",
-          cex.main = cex.legend,
-          main = sprintf("Rain signals of neighbours (%s)",
-                         paste(names(rd)[3:n.cols], collapse = ", "))
-        )
-        
-        axis(side = 1, labels = datenames, at = seq_len(nrow(rd)), tick = FALSE, 
-             las = 3)
-      }
-    }
-  }
 }
 
 # applyCorrection --------------------------------------------------------------
