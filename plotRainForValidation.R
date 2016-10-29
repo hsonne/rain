@@ -107,20 +107,25 @@ toPlotTitle <- function(gauge, datestring, marked, main = "Title?")
 }
 
 # constargs --------------------------------------------------------------------
-constargs <- function(id) 
+constargs <- function(id = NULL)
 {
   argLists <- list(
     
     barplot_1 = list(space = 0, adj = 1, col = c("grey", "red")),
     barplot_2 = list(ylab = "rain height in mm", las = 3),
     barplot_3 = list(space = 0, col = "grey"),
+    barplot_4 = list(space = c(0, 0), beside = TRUE),
     
     boxplot_1 = list(boxwex = 1, las = 3, xaxt = "n"),
     
     axis_1 = list(side = 1, tick = FALSE, las = 3)
   )
   
-  selectElements(argLists, id)
+  if (is.null(id)) {
+    argLists
+  } else {
+    selectElements(argLists, id)
+  }
 }
 
 # onePlotPerNeighbour ----------------------------------------------------------
@@ -160,10 +165,8 @@ allNeighboursInOnePlot <- function(rd, genargs, cex.legend)
 
     main <- sprintf("Rain at nearest neighbour gauge: %s", gauges[1])
     
-    callWith(barplot, genargs, 
-             height = height, space = c(0, 0), beside = TRUE, main = main,
-             ylim = .ylim(height, step = 0.1)
-    )
+    callWith(barplot, genargs, constargs("barplot_4"),
+             height = height, main = main, ylim = .ylim(height, step = 0.1))
   }
   else {
     
@@ -173,12 +176,10 @@ allNeighboursInOnePlot <- function(rd, genargs, cex.legend)
     
     callWith(boxplot, constargs("boxplot_1"), 
              x = height, ylim = .ylim(height), names = datenames, 
-             cex.main = cex.legend, main = main
-    )
+             cex.main = cex.legend, main = main)
     
     callWith(axis, constargs("axis_1"), 
-             labels = datenames, at = seq_along(datenames)
-    )
+             labels = datenames, at = seq_along(datenames))
   }
 }
 
