@@ -69,17 +69,37 @@ rainValidation <- function
   ### further arguments passed to validateRainDay, such as neighb, devPdf, ask
 )
 {
-  bak <- corrData
-  corrData <- removeColumns(corrData, c("Lbg", "Wila"))
-  corrData$Wil <- 0.0
-  
   cases <- kwb.rain::getCorrectionCases(corrData, rainData)
+  
+  #tolerance = 0.001
   cases <- prevalidate(cases, tolerance)
   
   # From the undecided cases, look for cases in which the correction value
   # equals a sum of highest signals
   cases.bak <- cases
-  cases <- prevalidate2(cases[cases$action == "", ], tolerance)
+  cases <- cases.bak
+  
+  # Try to find more cases (increase the tolerance within each loop)
+  result <- list()
+  
+  tolerances <- c(tolerance, c(0.1, 0.2, 0.4))
+  
+  cases <- cases[cases$action == "", ]
+  
+  for (i in seq_along(tolerances)) {
+    
+    message("\ntolerance:", tolerances[i], "\n")
+    
+    res <- prevalidate2(cases, rainData, tolerances[i], do.plot = TRUE)
+    
+    head(cases); head(res)
+    
+    sums <- unlist(lapply(res, sum))
+
+    cases <- cases[! almostEqual(cases$corr_mm, sums, tolerance), ]
+
+    result[[i]] <- res
+  }
 
   x <- resetRowNames(cases[cases$action == "", ])
   x
@@ -183,11 +203,7 @@ showOverviewMessages <- function(gauges, gauges.corr, cases)
 }
 
 # prevalidate2 -----------------------------------------------------------------
-prevalidate2 <- function
-(
-  cases,
-  rainData
-)
+prevalidate2 <- function(cases, rainData, tolerance, do.plot = FALSE)
 {
   rainData$day <- hsDateStr(rainData[, 1])
   
@@ -212,15 +228,15 @@ prevalidate2 <- function
     
     if (is.null(indices)) {
       neword <- seq(ord[1], length(signals))
-      indices <- matchingCumsum(signals, neword, target, tolerance)
+      indices <- matchingCumsum(signals, neword, target, tolerance, do.plot)
     }
     
     if (is.null(indices)) {
       neword <- seq(ord[1], 1, -1)
-      indices <- matchingCumsum(signals, neword, target, tolerance)
+      indices <- matchingCumsum(signals, neword, target, tolerance, do.plot)
     }
     
-    indices
+    signals[indices]
   })
 }
 
@@ -249,7 +265,8 @@ matchingCumsum <- function(signals, ord, target, tolerance, do.plot = FALSE)
   
   if (do.plot) {
     y <- signals[ord]
-    xpos <- barplot(y, main = paste("target:", target), col = col)
+    xpos <- barplot(y, main = paste("target:", target, "tol:", tolerance), 
+                    col = col)
     text(xpos, 0.25, round(y, 1), cex = 0.6)
     text(xpos, 0.5, round(cumsum(y), 1), cex = 0.6)
   }
