@@ -30,8 +30,7 @@ library(kwb.datetime) # for hsDateStr
 if (FALSE)
 {
   xls.dir <- .xlsdir(home = FALSE)
-  write.to.mdb <- FALSE
-  write.to.csv <- FALSE
+  write.to <- c(mdb = FALSE, csv = FALSE)
   
   ## Step 01: Load raw rain signals from xls
   paths <- getPathsForRainValidation(xls.dir, example = 4)
@@ -68,7 +67,7 @@ if (FALSE)
   identical(corr, getObjectFromRDataFile(corr.rdata, "corr"))
   identical(out, getObjectFromRDataFile(corr.rdata, "out"))
   
-  if (write.to.mdb) {
+  if (write.to["mdb"]) {
     ## Step 02: Convert rd.orig to list form -> rd.list.
     ## Step 02a: append an additional date column; this will facilitate manual
     ##           browsing through the database table for wrong signals.
@@ -97,7 +96,7 @@ if (FALSE)
   corr$rd.diff$comment <- "auto-val in R"
   
   ## Step 09: Write rd.diff to mdb::tbl_3_CorrSignal
-  if (write.to.mdb) {
+  if (write.to["mdb"]) {
     hsPutTable(mdb, corr$rd.diff, "tbl_3_CorrSignal")
   }
   
@@ -122,7 +121,7 @@ if (FALSE)
   rd.long <- kwb.rain::getDailyCumulativeRain(rd.orig)
   
   ##   * Write cumulated rain data in "list form" to database table (if required)
-  if (write.to.mdb) {
+  if (write.to["mdb"]) {
     hsPutTable(mdb, rd.long, "tbl_1a_RawCumSig")
   }
   
@@ -179,7 +178,7 @@ if (FALSE)
   rd.final <- rd.final[, c(n.cols, 1:(n.cols - 1))]
   
   ## Save final rain data to database
-  if (write.to.mdb) {
+  if (write.to["mdb"]) {
     mdb <- "//moby/miacso$/Daten/ACCESS/Regen/Regendaten_BWB_ab2008.mdb"
     tbl <- "tblVal_2007_withoutUserDecision_DLS" #"tblVal_2011_lastTwoDays"
     tbl <- hsPutTable(mdb, rd.final, tbl)
@@ -195,7 +194,7 @@ if (FALSE)
   }
   
   ## Save new correction dataset to csv files
-  if (write.to.csv) {
+  if (write.to["csv"]) {
     write.csv2(cd, file = file.path(xls.dir, "hsValCorrDataNew2.csv"))
   }
   
