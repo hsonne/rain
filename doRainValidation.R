@@ -62,6 +62,7 @@ rainValidation <- function
   ### data frame with rain correction data
   gauges = names(rainData)[-(1:2)],
   ### names of gauges to be validated. Default: names of columns 3:ncol(rd)
+  tolerance = 0.001,
   dbg = FALSE,
   ### if \code{TRUE} debug messages are shown
   ...
@@ -73,12 +74,16 @@ rainValidation <- function
   corrData$Wil <- 0.0
   
   cases <- kwb.rain::getCorrectionCases(corrData, rainData)
-  cases <- prevalidate(cases)
+  cases <- prevalidate(cases, tolerance)
   
-  x <- cases[cases$action == "", ]
-  
-  round(x$corr_mm - x$rain_mm, 4)
-  
+  # From the undecided cases, look for cases in which the correction value
+  # equals a sum of highest signals
+  cases.bak <- cases
+  cases <- prevalidate2(cases[cases$action == "", ], tolerance)
+
+  x <- resetRowNames(cases[cases$action == "", ])
+  x
+
   out <- capture.output(
     showOverviewMessages(gauges, gauges.corr = names(corrData), cases)
   )
@@ -98,6 +103,58 @@ rainValidation <- function
     cd.diff = rbindAll(lapply(results, "[[", "cd.diff")), 
     dbgRain = rbindAll(lapply(results, "[[", "dbgRain"))
   )
+}
+
+# prevalidate ------------------------------------------------------------------
+prevalidate <- function(cases, diff.digits = 4, tolerance = 0.0001)
+{
+  rain_mm <- selectColumns(cases, "rain_mm")
+  corr_mm <- selectColumns(cases, "corr_mm")
+  highest <- selectColumns(cases, "highest")
+  
+  cases$diff <- round(rain_mm - corr_mm, diff.digits)
+  cases$absdiff <- round(abs(cases$diff), diff.digits)
+  
+  cases$analysis <- ""
+  cases$action <- ""
+  
+  ## Is the sum of rain (almost) equal to the correction value?
+  selected <- almostEqual(rain_mm, corr_mm, tolerance)
+  
+  cases <- checkAndSet(
+    cases, selected, "corr_mm == rain_mm", "Remove all signals of day"
+  )
+  
+  selected <- (! selected & (rain_mm < corr_mm))
+  
+  cases <- checkAndSet(
+    cases, selected, "Less rain available than to correct!", "?"
+  )
+
+  selected <- (! selected & almostEqual(corr_mm, highest, tolerance))
+
+  cases <- checkAndSet(
+    cases, selected, "corr_mm == highest", "Remove highest signal of day"
+  )
+
+  cases
+}
+
+# almostEqual ------------------------------------------------------------------
+almostEqual <- function(x, y, tolerance = 1e-8)
+{
+  # stopifnot(length(x) == length(y))
+  
+  abs(x - y) < tolerance
+}
+
+# checkAndSet ------------------------------------------------------------------
+checkAndSet <- function(cases, selected, analysis, action)
+{
+  cases$analysis[selected] <- analysis
+  cases$action[selected] <- action
+  
+  cases
 }
 
 # showOverviewMessages ---------------------------------------------------------
@@ -125,49 +182,79 @@ showOverviewMessages <- function(gauges, gauges.corr, cases)
   }
 }
 
-# prevalidate ------------------------------------------------------------------
-prevalidate <- function(cases, diff.digits = 4, tolerance = 0.0001)
+# prevalidate2 -----------------------------------------------------------------
+prevalidate2 <- function
+(
+  cases,
+  rainData
+)
 {
-  rain_mm <- selectColumns(cases, "rain_mm", 1)
-  corr_mm <- selectColumns(cases, "corr_mm", 1)
+  rainData$day <- hsDateStr(rainData[, 1])
   
-  cases$diff <- round(rain_mm - corr_mm, diff.digits)
-  cases$absdiff <- round(abs(cases$diff), diff.digits)
-  
-  cases$analysis <- ""
-  cases$action <- ""
-  
-  ## Is the sum of rain (almost) equal to the correction value?
-  selected <- almostEqual(rain_mm, corr_mm, tolerance = 0.001)
-  
-  cases <- checkAndSet(
-    cases, selected, "corr_mm == rain_mm", "All signals of day removed"
-  )
-  
-  selected <- (! selected & (rain_mm < corr_mm))
-  
-  cases <- checkAndSet(
-    cases, selected, "Less rain available than to correct!", "?"
-  )
-  
-  cases
+  cumsumIndices <- lapply(seq_len(nrow(cases)), function(i) {
+    
+    printIf(TRUE, cases[i, ], "Analysing case")
+    
+    heights <- rainData[rainData$day == cases[i, "day"], cases[i, "gauge"]]
+    heights <- defaultIfNA(heights, 0.0)
+    isSignal <- heights > 0
+    signals <- heights[isSignal]
+    
+    ord <- order(- signals)
+
+    #barplots(heights, signals, ord)
+
+    cumsum(signals[ord])
+
+    target <- cases[i, "corr_mm"]
+    
+    indices <- matchingCumsum(signals, ord, target, tolerance)
+    
+    if (is.null(indices)) {
+      neword <- seq(ord[1], length(signals))
+      indices <- matchingCumsum(signals, neword, target, tolerance)
+    }
+    
+    if (is.null(indices)) {
+      neword <- seq(ord[1], 1, -1)
+      indices <- matchingCumsum(signals, neword, target, tolerance)
+    }
+    
+    indices
+  })
 }
 
-# almostEqual ------------------------------------------------------------------
-almostEqual <- function(x, y, tolerance = 1e-8)
+# barplots ---------------------------------------------------------------------
+barplots <- function(heights, signals, ord)
 {
-  stopifnot(length(x) == length(y))
-  
-  abs(x - y) < tolerance
+  barplot(heights)
+  barplot(signals)
+  barplot(signals[ord])
 }
 
-# checkAndSet ------------------------------------------------------------------
-checkAndSet <- function(cases, selected, analysis, action)
+# matchingCumsum ---------------------------------------------------------------
+matchingCumsum <- function(signals, ord, target, tolerance, do.plot = FALSE)
 {
-  cases$analysis[selected] <- analysis
-  cases$action[selected] <- action
+  isMet <- almostEqual(cumsum(signals[ord]), target, tolerance)
+
+  col <- rep("blue", length(ord))
   
-  cases
+  if (any(isMet, na.rm = TRUE)) {
+    indices <- seq_len(which(isMet)[1])
+    result <- ord[indices]
+    col[indices] <- "red"
+  } else {
+    result <- NULL
+  }
+  
+  if (do.plot) {
+    y <- signals[ord]
+    xpos <- barplot(y, main = paste("target:", target), col = col)
+    text(xpos, 0.25, round(y, 1), cex = 0.6)
+    text(xpos, 0.5, round(cumsum(y), 1), cex = 0.6)
+  }
+  
+  result
 }
 
 # validateRainDay --------------------------------------------------------------
@@ -213,7 +300,13 @@ validateRainDay <- function
     
     selected <- (defaultIfNA(rain_mm, 0) != 0)
     
-    diffs <- getDiffs(selected)
+    diffs <- getDiffs(rdd, cdd, selected, case$gauge)
+  }
+  else if (case$analysis == "corr_mm == highest") {
+    
+    selected <- (almostEqual(rain_mm, case$highest))
+    
+    diffs <- getDiffs(rdd, cdd, selected, case$gauge)
   }
   else {
     
@@ -238,7 +331,7 @@ validateRainDay <- function
   ## Add original signals vs corrected signals to plot
   if (devPdf > 0) {
     plotRainForValidation(rd = rdd[, c(1, 3)], title = msg, #highlight = 1,
-                          cor = cor, dev = devPdf, dbg = dbg)
+                          cor = case$corr_mm, dev = devPdf, dbg = dbg)
   }
   
   ## Return list of rain data differences and correction data differences
@@ -301,14 +394,14 @@ userValidation <- function
   ### rain data of one day
   cdd,
   ### correction data of one day
-  gauge,
-  ## name of rain gauge
+  case,
+  ## one row data frame containing date, gauge, rain_mm, corr_mm
   neighb = NULL,
   ### neighbour matrix
-  diff.thresh,
-  rd.digits,
   num.neighb = 2,
   ### how many neighbours are to be shown for comparison?
+  tolerance,
+  rd.digits,
   ask = FALSE,
   ### if TRUE user is asked to select signals to remove/modify
   dbg = FALSE,
@@ -318,64 +411,39 @@ userValidation <- function
 )
 {
   ## init result variables
-  rd.diff <- NULL ## diff record for rain data
-  cd.diff <- NULL ## diff record for correction data
-  
-  ## correction value for the gauge
-  cor <- selectColumns(cdd, gauge)
+  result <- list(
+    rd.diff = NULL, ## diff record for rain data
+    cd.diff = NULL, ## diff record for correction data
+    wrong = c(), # indices of wrong signals
+    valid = c(), # new (valid) heights of wrong signals
+    prp = c() # proposed indices of signals to delete
+  )
   
   ## Get indices of rain signals, odered decreasingly by rain height
-  signals <- selectColumns(rdd, gauge)
-  idx <- order(signals, decreasing = TRUE)
+  signals <- selectColumns(rdd, case$gauge)
+  decreasingOrder <- order(signals, decreasing = TRUE)
   
   ## reduce to indices at which rain > 0
-  idx <- idx[defaultIfNA(signals[idx], 0) > 0]
+  decreasingOrder <- decreasingOrder[defaultIfNA(signals[decreasingOrder], 0) > 0]
   
   ## Cumulate the highest values
-  cs <- cumsum(signals[idx])
-  
-  printIf(dbg, round(signals[idx], 3), "Ordered signals")
-  printIf(dbg, round(cs, 3), "   round(cumsum, 3)")
-  
-  ## indices of wrong signals
-  wrong <- c()
-  
-  ## new (valid) heights of wrong signals
-  valid <- c()
-  
-  ## proposed indices of signals to delete
-  prp <- c()
+  cumulativeSum <- cumsum(signals[decreasingOrder])
   
   ## Is the correction value met by the sum of n highest signals?
-  imet <- which(abs(cs - cor) < diff.thresh)
-  nmet <- length(imet)
+  isMet <- almostEqual(cumulativeSum, case$corr_mm, tolerance)
   
-  ## Is the correction value met by the sum of one or more highest signals?
-  if (nmet == 1) {
-    if (imet == 1) {
-      dbgInfo$analysis <- "corr_mm == highest sig"
-      dbgInfo$action <- "Highest signal removed"
-      cat(formatDebugInfo(dbgInfo))
-      #cat(sprintf(" * Correction value met by highest signal.\n", imet))
-      #cat(" -> Removing this signal...\n")
-      wrong <- idx[1]
-    }
-    else {
-      dbgInfo$analysis <- sprintf("corr_mm == sum(%d highest sigs)", imet)
-      cat(formatDebugInfo(dbgInfo))
-      #cat(sprintf(" * Correction value met by sum of %d highest signals.\n", imet))
-      prp <- idx[1:nmet]
-    }
+  if (any(isMet)) {
+    
+    case$analysis <- sprintf("corr_mm == sum(%d highest sigs)", which(isMet))
+    case$action <- sprintf("set %d highest signals to zero", which(isMet))
+
+    prp <- decreasingOrder[seq_len(sum(isMet))]
   }
-  else if (nmet == 0) {
-    dbgInfo$analysis <- "corr_mm != sum(highest sigs)"
-    cat(formatDebugInfo(dbgInfo))
-    #cat(sprintf(" * Correction value is not met by any sum of highest signals.\n"))
+  else  {
+    case$analysis <- "corr_mm != sum(highest signals)"
+    case$action <- "?"
   }
-  else {
-    stop("nmet > 1, this should never happen!")
-  }
-  
+
   ## Let the user decide if no signals have been marked for deletion so far
   if (length(wrong) == 0) {
     
@@ -394,9 +462,9 @@ userValidation <- function
       
       plotArgs <- list(
         rd = rdd[, cols],
-        title = sprintf("to correct: %0.2f mm\n", cor),
-        rdiff = data.frame(idx = prp, diff = hts - rdd[prp, gauge]),
-        label = getLabels(n = nrow(rdd), indices = idx),
+        title = sprintf("to correct: %0.2f mm\n", case$corr_mm),
+        rdiff = data.frame(decreasingOrder = prp, diff = hts - rdd[prp, gauge]),
+        label = getLabels(n = nrow(rdd), indices = decreasingOrder),
         dbg = dbg,
         ...
       )
@@ -448,7 +516,7 @@ userValidation <- function
 #       title = sprintf("Removed: %0.2f mm (single signal)", sig),
 #       #del,
 #       dht, 
-#       cor, 
+#       case$corr_mm, 
 #       dbg = dbg
 #     )
 
