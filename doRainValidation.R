@@ -90,7 +90,8 @@ rainValidation <- function
     
     message("\ntolerance:", tolerances[i], "\n")
     
-    res <- prevalidate2(cases, rainData, tolerances[i], do.plot = TRUE)
+    #tolerance = tolerances[i]; do.plot = TRUE
+    diffs <- prevalidate2(cases, rainData, tolerance = tolerances[i], do.plot = TRUE)
     
     head(cases); head(res)
     
@@ -207,11 +208,12 @@ prevalidate2 <- function(cases, rainData, tolerance, do.plot = FALSE)
 {
   rainData$day <- hsDateStr(rainData[, 1])
   
-  cumsumIndices <- lapply(seq_len(nrow(cases)), function(i) {
+  lapply(seq_len(nrow(cases)), function(i) {
     
     printIf(TRUE, cases[i, ], "Analysing case")
     
-    heights <- rainData[rainData$day == cases[i, "day"], cases[i, "gauge"]]
+    rdd <- rainData[rainData$day == cases[i, "day"], ]
+    heights <- selectColumns(rdd, cases[i, "gauge"])
     heights <- defaultIfNA(heights, 0.0)
     isSignal <- heights > 0
     signals <- heights[isSignal]
@@ -219,8 +221,6 @@ prevalidate2 <- function(cases, rainData, tolerance, do.plot = FALSE)
     ord <- order(- signals)
 
     #barplots(heights, signals, ord)
-
-    cumsum(signals[ord])
 
     target <- cases[i, "corr_mm"]
     
@@ -236,7 +236,12 @@ prevalidate2 <- function(cases, rainData, tolerance, do.plot = FALSE)
       indices <- matchingCumsum(signals, neword, target, tolerance, do.plot)
     }
     
-    signals[indices]
+    if (is.null(indices)) {
+      NULL
+    } else {
+      selected <- which(isSignal)[indices]
+      getDiffs(rdd, case = cases[i, ], selected)
+    }
   })
 }
 
@@ -317,13 +322,13 @@ validateRainDay <- function
     
     selected <- (defaultIfNA(rain_mm, 0) != 0)
     
-    diffs <- getDiffs(rdd, cdd, selected, case$gauge)
+    diffs <- getDiffs(rdd, case, selected)
   }
   else if (case$analysis == "corr_mm == highest") {
     
     selected <- (almostEqual(rain_mm, case$highest))
     
-    diffs <- getDiffs(rdd, cdd, selected, case$gauge)
+    diffs <- getDiffs(rdd, case, selected)
   }
   else {
     
@@ -364,27 +369,30 @@ validateRainDay <- function
 # getDiffs ---------------------------------------------------------------------
 getDiffs <- function
 (
-  rdd, cdd, selected, gauge, columns = c("tBeg_BWB", "tEnd_BWB", "tDate_BWB")
+  rdd, case, selected, columns = c("tBeg_BWB", "tEnd_BWB", "tDate_BWB")
 )
 {
+  gauge <- case[, "gauge"]
+  
   rain_mm <- selectColumns(rdd, gauge)
-  corr_mm <- selectColumns(cdd, gauge)
   
   list(
     
-    rain = cbind(
-      selectColumns(resetRowNames(rdd[selected, ]), columns[1:2]),
-      diff_mm = - rain_mm[selected], # -sig
-      rain_mm = 0.0
+    rain = data.frame(
+      selectColumns(rdd[selected, ], columns[1:2]),
+      gauge = case["gauge"],
+      diff_mm = - rain_mm[selected],
+      rain_mm = 0.0,
+      stringsAsFactors = FALSE
     ),
     
-    corr = cbind(
-      selectColumns(resetRowNames(cdd[1, ]), columns[3], drop = FALSE),
-      diff_mm = - corr_mm, # -sig
-      corr_mm = 0.0
-    ),
-    
-    dbgInfo = dbgInfo
+    corr = data.frame(
+      date = case["day"],
+      gauge = case["gauge"],
+      diff_mm = - case["corr_mm"],
+      corr_mm = 0.0,
+      stringsAsFactors = FALSE
+    )
   )
 }
 
