@@ -90,7 +90,8 @@ analyseCase <- function
 }
 
 # selectCaseData ---------------------------------------------------------------
-selectCaseData <- function(rainData, case, neighb = NULL, num.neighb = 0)
+selectCaseData <- function(rainData, case, neighb = NULL, num.neighb = 0,
+                           trim = FALSE)
 {
   gauge <- selectColumns(case, "gauge")
   
@@ -103,7 +104,16 @@ selectCaseData <- function(rainData, case, neighb = NULL, num.neighb = 0)
   
   columns <- c(names(rainData)[1:2], "day", gauge, neighbours)
   
-  selectColumns(rainData, columns, do.stop = FALSE)[selected, ]
+  rainDataDay <- selectColumns(rainData, columns, do.stop = FALSE)[selected, ]
+  
+  # Trim the data to the time interval between first and last signal
+  if (trim) {
+    values <- selectElements(rainDataDay, gauge)
+    indexRange <- range(which(values > 0))
+    rainDataDay <- rainDataDay[do.call(seq, as.list(indexRange)), ]
+  }
+  
+  rainDataDay
 }
 
 # findIndicesWithSum -----------------------------------------------------------
