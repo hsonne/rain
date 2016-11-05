@@ -72,9 +72,11 @@ rowsToPlot <- function(plotperneighb, n.cols)
 # plotRainAtGauge --------------------------------------------------------------
 plotRainAtGauge <- function
 (
-  rd, bars, heights, main, dateFormat, label = NULL, 
+  rd, bars = NULL, heights = NULL, main = "main?", 
+  dateFormat = "%H:%M", label = NULL, 
   cex = c(legend = 1.0, barid = 1.0), 
-  nrowlab = 5
+  nrowlab = 5,
+  case = case
 )
 {
   ## Prepare (2 x n)-matrix for barplot with n = number of rows in rd.
@@ -86,19 +88,11 @@ plotRainAtGauge <- function
   
   height <- prepareMatrix(rain.mm, bars, heights)
   
-  main <- toPlotTitle(
-    gauge = names(rd)[2], 
-    datestring = hsDateStr(rd[1, 1]), 
-    marked = sum(rdiff$diff), 
-    main = main
-  )
-
-  datenames <- kwb.plot::niceLabels(format(timestamps, dateFormat), 12)
-  
   ## general arguments
   ## las = 3: axis labels always vertical to the axis
   args.plot <- arglist(constargs("barplot_2"), 
-                       cex.main = cex["legend"], names.arg = datenames)
+                       cex.main = cex["legend"], 
+                       names.arg = .toTimeLabels(timestamps, dateFormat))
   
   ## call the barplot function with general arguments, constant arguments and 
   ## specifig arguments
@@ -119,6 +113,27 @@ plotRainAtGauge <- function
   
   # Return the general arguments so that they can be reused
   args.plot
+}
+
+# .toTimeLabels ----------------------------------------------------------------
+.toTimeLabels <- function
+(
+  timestamps, dateFormat = "", max.labels = 20, 
+  nicesteps = c(1, 2, 3, 4, 6, 12, 18, 24, 7*24)
+)
+{
+  timelabels <- format(timestamps, dateFormat)
+
+  labelstep <- length(timelabels) / max.labels
+  labelstep <- nicesteps[which.min(abs(labelstep - nicesteps))]
+  
+  firsttimes <- timestamps[seq_len(labelstep)]
+  
+  index <- which(as.numeric(firsttimes) %% (labelstep * 60) == 0)
+  
+  stopifnot(length(index) == 1)
+  
+  kwb.plot::niceLabels(timelabels, labelstep = labelstep, offset = index -1)
 }
 
 # prepareMatrix ----------------------------------------------------------------
@@ -148,18 +163,6 @@ addAtIndices <- function(x, indices, values)
   x[indices] <- x[indices] + values
   
   x
-}
-
-# toPlotTitle -----------------------------------------------------------------
-toPlotTitle <- function(gauge, datestring, marked, main = "Title?")
-{
-  paste0(
-    sprintf("Gauge: %s, date: %s\n", gauge, datestring),
-    #sprintf("to correct: %0.2f mm\n", cor),
-    #sprintf("marked: %0.2f mm", sum(rd[[2]]) - sum(height)),
-    sprintf("marked: %0.2f mm\n", marked),
-    main
-  )  
 }
 
 # constargs --------------------------------------------------------------------
@@ -228,13 +231,13 @@ allNeighboursInOnePlot <- function(rd, args.plot, cex.legend = 1)
     
     main <- sprintf("Rain signals of neighbours (%s)", stringList(gauges))
 
-    datenames <- selectElements(args.plot, "names.arg")
+    timelabels <- selectElements(args.plot, "names.arg")
     
     callWith(boxplot, constargs("boxplot_1"), 
-             x = height, ylim = .ylim(height), names = datenames, 
+             x = height, ylim = .ylim(height), names = timelabels, 
              cex.main = cex.legend, main = main)
     
     callWith(axis, constargs("axis_1"), 
-             labels = datenames, at = seq_along(datenames))
+             labels = timelabels, at = seq_along(timelabels))
   }
 }

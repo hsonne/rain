@@ -84,6 +84,10 @@ rainValidation <- function
   
   diffs <- guessDifferences(cases, rainData)
 
+  # Select all [[1]] or a subset of cases, e.g. for testing [[2]]
+  indices <- list(seq_along(diffs), 1:10)[[1]]
+  plotCases(cases[indices, ], rainData, diffs[indices])
+  
   cases <- cases.all[! isSolved(diffs, cases.all, method = 1), ]
   
   # Loop through the remaining cases
@@ -308,8 +312,6 @@ userValidation <- function
   ### further arguments passed to plotRainForValidation
 )
 {
-####for (i in seq_len(nrow(cases))) {case <- cases[i, ]
-    
   gauge <- selectColumns(case, "gauge")
   
   rainDataDay <- selectCaseData(rainData, case, neighb, num.neighb, trim = TRUE)
@@ -326,8 +328,7 @@ userValidation <- function
   )
 
   callWith(plotRainForValidation, plotArgs)
-####}
-  
+
   userHeights <- askRepeatedly(
     askFunction = askForUserHeights,
     runFunction = plotRainForValidation, 
@@ -376,13 +377,8 @@ neighbourGauges <- function
   
   indices <- which(isSignal)[order(- round(values[isSignal], digits))]
   
-  getLabels(n = nrow(rainDataDay), indices = indices)
-}
-
-# getLabels --------------------------------------------------------------------
-getLabels <- function(n, indices)
-{
-  labels <- rep(NA, n)
+  labels <- rep(NA, nrow(rainDataDay))
   labels[indices] <- seq_along(indices)
+  
   labels
 }

@@ -5,6 +5,12 @@ library(lattice)
 library(kwb.db) # for hsSqlQuery
 library(kwb.datetime) # for hsDateStr
 
+kwb.utils::sourceScripts(file.path(
+  "/home/hauke/RProgramming/github/rain",
+  c("plotCases.R", "prevalidate.R", "doRainValidation.R", 
+    "plotRainForValidation.R")
+))
+
 ## Idea of a good validation procedure =========================================
 ##
 ## 01. Load raw rain signals from xls -> rd.orig
