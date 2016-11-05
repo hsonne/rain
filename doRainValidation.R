@@ -308,18 +308,25 @@ userValidation <- function
   ### further arguments passed to plotRainForValidation
 )
 {
+####for (i in seq_len(nrow(cases))) {case <- cases[i, ]
+    
   gauge <- selectColumns(case, "gauge")
   
-  rainDataDay <- selectCaseData(rainData, case, neighb, num.neighb)
+  rainDataDay <- selectCaseData(rainData, case, neighb, num.neighb, trim = TRUE)
   
-  plotArgs <- list(
-    rd = rainDataDay,
-    title = sprintf("to correct: %0.2f mm\n", case$corr_mm),
-    rdiff = data.frame(decreasingOrder = prp, diff = hts - rdd[prp, gauge]),
-    label = getLabels(n = nrow(rdd), indices = decreasingOrder),
-    dbg = dbg,
-    ...
+  # dbg <- TRUE
+  plotArgs <- list(NULL
+    , rd = rainDataDay[, -(2:3)]
+    , main = sprintf("to correct: %0.2f mm\n", selectColumns(case, "corr_mm"))
+    #, rdiff = data.frame(decreasingOrder = prp, diff = hts - rdd[prp, gauge])
+    , label = .barLabels(rainDataDay[, -(2:3)])
+    , dbg = dbg
+    , plotperneighb = TRUE
+    #, ...
   )
+
+  callWith(plotRainForValidation, plotArgs)
+####}
   
   userHeights <- askRepeatedly(
     askFunction = askForUserHeights,

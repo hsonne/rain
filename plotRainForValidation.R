@@ -6,7 +6,11 @@ plotRainForValidation <- function
   ### gauges' data
   main = "Title? Use argument 'main' to set a title",
   ### plot title
-  rdiff = NULL,
+  bars = NULL,
+  ### indices of bars to be corrected
+  heights = NULL,
+  ### new heights of bars to be corrected
+  #rdiff = NULL,
   ### data frame containing indices and signal differences
   label = NULL,
   ### vector of labels
@@ -17,7 +21,7 @@ plotRainForValidation <- function
   dateFormat = "%H:%M",
   ### date/time format with placeholders %d (day), %m (month), %y, %Y (year),
   ### %H (hour), %M (minute), %S (second). Default: "%H:%M"
-  cex = c(legend = 0.8, barid = 0.5),
+  cex = c(legend = 0.8, barid = 0.8),
   ### legend: scaling factor for legend, barid: scaling factor for bar-id labels
   dbg = FALSE
 )
@@ -28,7 +32,7 @@ plotRainForValidation <- function
   oldpar <- par(mfrow = c(rowsToPlot(plotperneighb, n.cols = ncol(rd)), 1))
   on.exit(par(oldpar)) 
   
-  args.plot <- plotRainAtGauge(rd, rdiff, main, dateFormat, label, cex)
+  args.plot <- plotRainAtGauge(rd, bars, heights, main, dateFormat, label, cex)
 
   ## neighbours to plot?
   if (ncol(rd) > 2) {
@@ -40,7 +44,7 @@ plotRainForValidation <- function
     }
     else {
       
-      allNeighboursInOnePlot()
+      allNeighboursInOnePlot(rd, args.plot)
     }
   }
 }
@@ -68,7 +72,9 @@ rowsToPlot <- function(plotperneighb, n.cols)
 # plotRainAtGauge --------------------------------------------------------------
 plotRainAtGauge <- function
 (
-  rd, rdiff, main, dateFormat, label = NULL, cex = c(legend = 1.0, barid = 1.0)
+  rd, bars, heights, main, dateFormat, label = NULL, 
+  cex = c(legend = 1.0, barid = 1.0), 
+  nrowlab = 5
 )
 {
   ## Prepare (2 x n)-matrix for barplot with n = number of rows in rd.
@@ -78,7 +84,7 @@ plotRainAtGauge <- function
   timestamps <- rd[[1]]
   rain.mm <- rd[[2]]
   
-  height <- prepareMatrix(rain.mm = rain.mm, rdiff)
+  height <- prepareMatrix(rain.mm, bars, heights)
   
   main <- toPlotTitle(
     gauge = names(rd)[2], 
@@ -92,19 +98,23 @@ plotRainAtGauge <- function
   ## general arguments
   ## las = 3: axis labels always vertical to the axis
   args.plot <- arglist(constargs("barplot_2"), 
-                     cex.main = cex["legend"], names.arg = datenames)
+                       cex.main = cex["legend"], names.arg = datenames)
   
   ## call the barplot function with general arguments, constant arguments and 
   ## specifig arguments
   x <- callWith(
-    barplot, args.plot, constargs("barplot_1"), 
-    height = height, ylim = .ylim(rain.mm), main = main
+    barplot, args.plot, constargs("barplot_1")
+    , height = height
+    , ylim = .ylim(rain.mm, step = 0.05, extra = 0.15)
+    , main = main
   )
   
   ## label the bars
   if (! is.null(label)) {
-    text(x, (x %% nrowlab + 1) * 0.04 * ymax, labels = label, 
-         cex = cex["barid"])
+    indices <- which(label != "")
+    kwb.plot::addLabels(
+      x[indices], label[indices], y0 = rain.mm[indices], cex = cex["barid"]
+    )
   }
   
   # Return the general arguments so that they can be reused
@@ -112,17 +122,20 @@ plotRainAtGauge <- function
 }
 
 # prepareMatrix ----------------------------------------------------------------
-prepareMatrix <- function(rain.mm, rdiff = NULL)
+prepareMatrix <- function(rain.mm, bars = NULL, heights = NULL, dbg = FALSE)
 {
-  if (is.null(rdiff)) {
+  if (is.null(bars)) {
     valid.mm <- rain.mm
   } else {
     valid.mm <- addAtIndices(
       x = rain.mm, 
-      indices = selectColumns(rdiff, "idx"), 
-      values = selectColumns(rdiff, "diff")
+      indices = bars, # selectColumns(rdiff, "idx"), 
+      values = heights - rain.mm[bars] # selectColumns(rdiff, "diff")
     )
   }
+  
+  printIf(dbg, rain.mm, "rain.mm")
+  printIf(dbg, valid.mm, "valid.mm")
   
   matrix(c(valid.mm, rain.mm - valid.mm), byrow = TRUE, nrow = 2)
 }
