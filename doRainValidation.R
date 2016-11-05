@@ -71,9 +71,10 @@ rainValidation <- function
 {
   cases.all <- kwb.rain::getCorrectionCases(corrData, rainData)
   
+  #gauges = names(rainData)[-(1:2)]
   showOverviewMessages(gauges, gauges.corr = names(corrData), cases.all)
   
-  cases <- prevalidate(cases.all, tolerance = 0.001)
+  #cases <- prevalidate(cases.all, tolerance = 0.001)
   cases <- cases.all
   
   # From the undecided cases, look for cases in which the correction value
@@ -81,18 +82,19 @@ rainValidation <- function
   # left or right neighbours
   rainData$day <- hsDateStr(rainData[, 1])
   
-  diffs <- guessDifferences()
+  diffs <- guessDifferences(cases, rainData)
 
   cases <- cases.all[! isSolved(diffs, cases.all, method = 1), ]
-  cases$action <- "User decision required ***"
-
+  
   # Loop through the remaining cases
   results <- lapply(seq_len(nrow(cases)), function(i) {
 
     ## Validate rain data of this day and gauge
-    #case <- cases[i, ]
-    #neighb <- getNeighbourMatrix(gauges = names(rainData)[-(1:2)])
-    #num.neighb = 2
+    if (FALSE) {
+      case <- cases[1, ]
+      neighb <- getNeighbourMatrix(gauges = names(rainData)[-(1:2)])
+      num.neighb = 2
+    }
     userValidation(
       case = cases[i, ], 
       rainData = rainData,
@@ -308,16 +310,10 @@ userValidation <- function
 {
   gauge <- selectColumns(case, "gauge")
   
-  rainDataDay <- selectCaseData(rainData, case)
-
-  # Columns of rain data to select. If a neighbour matrix is given, select the 
-  # <num.neighb> nearest neighbours, too
-  columns <- c("tBeg_BWB", gauge, neighbourGauges(gauge, neighb, num.neighb))
-
-  columns <- excludeMissing(columns, available = names(rainDataDay))
+  rainDataDay <- selectCaseData(rainData, case, neighb, num.neighb)
   
   plotArgs <- list(
-    rd = selectColumns(rainDataDay, columns),
+    rd = rainDataDay,
     title = sprintf("to correct: %0.2f mm\n", case$corr_mm),
     rdiff = data.frame(decreasingOrder = prp, diff = hts - rdd[prp, gauge]),
     label = getLabels(n = nrow(rdd), indices = decreasingOrder),
@@ -363,23 +359,6 @@ neighbourGauges <- function
   } else {
     NULL
   }
-}
-
-# excludeMissing ---------------------------------------------------------------
-excludeMissing <- function(cols, available = names(rdd))
-{
-  miscols <- setdiff(cols, available)
-  
-  if (length(miscols) > 0) {
-    
-    warning(
-      "Missing column(s) in rain data: ", stringList(miscols)
-    )
-    
-    cols <- setdiff(cols, miscols)
-  }
-  
-  cols
 }
 
 # getLabels --------------------------------------------------------------------

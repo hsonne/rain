@@ -90,10 +90,20 @@ analyseCase <- function
 }
 
 # selectCaseData ---------------------------------------------------------------
-selectCaseData <- function(rainData, case)
+selectCaseData <- function(rainData, case, neighb = NULL, num.neighb = 0)
 {
-  out <- selectColumns(rainData, c(names(rainData)[1:2], "day", case$gauge))
-  out[out$day == case$day, ]
+  gauge <- selectColumns(case, "gauge")
+  
+  # Which rows (belonging to the day of the current case) are to be selected?
+  selected <- selectColumns(rainData, "day") == selectColumns(case, "day")
+  
+  # Which columns (belonging to the gauge of the current case and neighbour 
+  # columns, if required) are to be selected?
+  neighbours <- neighbourGauges(gauge, neighb, num.neighb)
+  
+  columns <- c(names(rainData)[1:2], "day", gauge, neighbours)
+  
+  selectColumns(rainData, columns, do.stop = FALSE)[selected, ]
 }
 
 # findIndicesWithSum -----------------------------------------------------------
