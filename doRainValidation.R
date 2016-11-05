@@ -361,6 +361,17 @@ neighbourGauges <- function
   }
 }
 
+# .barLabels -------------------------------------------------------------------
+.barLabels <- function(Data, digits = 1)
+{
+  values <- Data[, 2]
+  isSignal <- values > 0
+  
+  indices <- which(isSignal)[order(- round(values[isSignal], digits))]
+  
+  getLabels(n = nrow(rainDataDay), indices = indices)
+}
+
 # getLabels --------------------------------------------------------------------
 getLabels <- function(n, indices)
 {
