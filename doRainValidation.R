@@ -69,54 +69,39 @@ rainValidation <- function
   ### further arguments passed to validateRainDay, such as neighb, devPdf, ask
 )
 {
-  cases <- kwb.rain::getCorrectionCases(corrData, rainData)
+  cases.all <- kwb.rain::getCorrectionCases(corrData, rainData)
   
-  #tolerance = 0.001
-  cases <- prevalidate(cases, tolerance)
+  showOverviewMessages(gauges, gauges.corr = names(corrData), cases.all)
+  
+  cases <- prevalidate(cases.all, tolerance = 0.001)
+  cases <- cases.all
   
   # From the undecided cases, look for cases in which the correction value
-  # equals a sum of highest signals
-  cases.bak <- cases
-  cases <- cases.bak
+  # equals a sum of highest signals or the sum of the highest signal and its
+  # left or right neighbours
+  rainData$day <- hsDateStr(rainData[, 1])
   
-  # Try to find more cases (increase the tolerance within each loop)
-  result <- list()
-  
-  tolerances <- c(tolerance, c(0.1, 0.2, 0.4))
-  
-  cases <- cases[cases$action == "", ]
-  
-  for (i in seq_along(tolerances)) {
-    
-    message("\ntolerance:", tolerances[i], "\n")
-    
-    #tolerance = tolerances[i]; do.plot = TRUE
-    diffs <- prevalidate2(cases, rainData, tolerance = tolerances[i], do.plot = TRUE)
-    
-    head(cases); head(res)
-    
-    sums <- unlist(lapply(res, sum))
+  diffs <- guessDifferences()
 
-    cases <- cases[! almostEqual(cases$corr_mm, sums, tolerance), ]
+  cases <- cases.all[! isSolved(diffs, cases.all, method = 1), ]
+  cases$action <- "User decision required ***"
 
-    result[[i]] <- res
-  }
-
-  x <- resetRowNames(cases[cases$action == "", ])
-  x
-
-  out <- capture.output(
-    showOverviewMessages(gauges, gauges.corr = names(corrData), cases)
-  )
-  
-  catLines(out)
-  head(out, 10)
-  
-  # Loop through the cases
+  # Loop through the remaining cases
   results <- lapply(seq_len(nrow(cases)), function(i) {
-    
+
     ## Validate rain data of this day and gauge
-    validateRainDay(rainData, corrData, case, dbg = dbg, ...)
+    #case <- cases[i, ]
+    #neighb <- getNeighbourMatrix(gauges = names(rainData)[-(1:2)])
+    #num.neighb = 2
+    userValidation(
+      case = cases[i, ], 
+      rainData = rainData,
+      neighb = neighb,
+      diff.thresh = diff.thresh,
+      rd.digits = rd.digits,
+      dbg = dbg,
+      ...
+    )
   })
   
   list(
@@ -126,56 +111,32 @@ rainValidation <- function
   )
 }
 
-# prevalidate ------------------------------------------------------------------
-prevalidate <- function(cases, diff.digits = 4, tolerance = 0.0001)
+# guessDifferences -------------------------------------------------------------
+guessDifferences <- function(cases, rainData)
 {
-  rain_mm <- selectColumns(cases, "rain_mm")
-  corr_mm <- selectColumns(cases, "corr_mm")
-  highest <- selectColumns(cases, "highest")
-  
-  cases$diff <- round(rain_mm - corr_mm, diff.digits)
-  cases$absdiff <- round(abs(cases$diff), diff.digits)
-  
-  cases$analysis <- ""
-  cases$action <- ""
-  
-  ## Is the sum of rain (almost) equal to the correction value?
-  selected <- almostEqual(rain_mm, corr_mm, tolerance)
-  
-  cases <- checkAndSet(
-    cases, selected, "corr_mm == rain_mm", "Remove all signals of day"
-  )
-  
-  selected <- (! selected & (rain_mm < corr_mm))
-  
-  cases <- checkAndSet(
-    cases, selected, "Less rain available than to correct!", "?"
-  )
-
-  selected <- (! selected & almostEqual(corr_mm, highest, tolerance))
-
-  cases <- checkAndSet(
-    cases, selected, "corr_mm == highest", "Remove highest signal of day"
-  )
-
-  cases
+  lapply(seq_len(nrow(cases)), function(i) {
+    printIf(TRUE, cases[i, ], "case")
+    analyseCase(case = cases[i, ], rainData)
+  })
 }
 
-# almostEqual ------------------------------------------------------------------
-almostEqual <- function(x, y, tolerance = 1e-8)
+# isSolved ---------------------------------------------------------------------
+isSolved <- function(diffs, cases, method = 1, tolerance = 0.1)
 {
-  # stopifnot(length(x) == length(y))
+  stopifnot(length(diffs) == nrow(cases))
   
-  abs(x - y) < tolerance
-}
+  if (method == 1) {
+    solved <- ! sapply(diffs, is.null)
+  } else if (method == 2) {
+    sums <- sapply(diffs, function(x) sum(x$data$value.old))
+    stopifnot(length(sums) == nrow(cases))
+    corr <- selectColumns(cases, "corr_mm")
+    solved <- almostEqual(corr, sums, tolerance)
+  } else {
+    stop("Unknown method: ", method)
+  }
 
-# checkAndSet ------------------------------------------------------------------
-checkAndSet <- function(cases, selected, analysis, action)
-{
-  cases$analysis[selected] <- analysis
-  cases$action[selected] <- action
-  
-  cases
+  solved
 }
 
 # showOverviewMessages ---------------------------------------------------------
@@ -203,81 +164,7 @@ showOverviewMessages <- function(gauges, gauges.corr, cases)
   }
 }
 
-# prevalidate2 -----------------------------------------------------------------
-prevalidate2 <- function(cases, rainData, tolerance, do.plot = FALSE)
-{
-  rainData$day <- hsDateStr(rainData[, 1])
-  
-  lapply(seq_len(nrow(cases)), function(i) {
-    
-    printIf(TRUE, cases[i, ], "Analysing case")
-    
-    rdd <- rainData[rainData$day == cases[i, "day"], ]
-    heights <- selectColumns(rdd, cases[i, "gauge"])
-    heights <- defaultIfNA(heights, 0.0)
-    isSignal <- heights > 0
-    signals <- heights[isSignal]
-    
-    ord <- order(- signals)
-
-    #barplots(heights, signals, ord)
-
-    target <- cases[i, "corr_mm"]
-    
-    indices <- matchingCumsum(signals, ord, target, tolerance)
-    
-    if (is.null(indices)) {
-      neword <- seq(ord[1], length(signals))
-      indices <- matchingCumsum(signals, neword, target, tolerance, do.plot)
-    }
-    
-    if (is.null(indices)) {
-      neword <- seq(ord[1], 1, -1)
-      indices <- matchingCumsum(signals, neword, target, tolerance, do.plot)
-    }
-    
-    if (is.null(indices)) {
-      NULL
-    } else {
-      selected <- which(isSignal)[indices]
-      getDiffs(rdd, case = cases[i, ], selected)
-    }
-  })
-}
-
-# barplots ---------------------------------------------------------------------
-barplots <- function(heights, signals, ord)
-{
-  barplot(heights)
-  barplot(signals)
-  barplot(signals[ord])
-}
-
-# matchingCumsum ---------------------------------------------------------------
-matchingCumsum <- function(signals, ord, target, tolerance, do.plot = FALSE)
-{
-  isMet <- almostEqual(cumsum(signals[ord]), target, tolerance)
-
-  col <- rep("blue", length(ord))
-  
-  if (any(isMet, na.rm = TRUE)) {
-    indices <- seq_len(which(isMet)[1])
-    result <- ord[indices]
-    col[indices] <- "red"
-  } else {
-    result <- NULL
-  }
-  
-  if (do.plot) {
-    y <- signals[ord]
-    xpos <- barplot(y, main = paste("target:", target, "tol:", tolerance), 
-                    col = col)
-    text(xpos, 0.25, round(y, 1), cex = 0.6)
-    text(xpos, 0.5, round(cumsum(y), 1), cex = 0.6)
-  }
-  
-  result
-}
+# prevalidate2 ...
 
 # validateRainDay --------------------------------------------------------------
 validateRainDay <- function
@@ -332,18 +219,7 @@ validateRainDay <- function
   }
   else {
     
-    diffs <- userValidation(
-      rdd = rdd, 
-      cdd = cdd,
-      gauge = gauge,
-      neighb = neighb,
-      diff.thresh = diff.thresh, 
-      rd.digits = rd.digits, 
-      ask = ask,
-      dbg = dbg, 
-      dbgInfo = dbgInfo, 
-      ...
-    )
+    diffs <- "user decision required"
   }
   
   rd.diff <- selectElements(diffs, "rd.diff") # "rain"
@@ -415,12 +291,7 @@ formatDebugInfo <- function(di, dbg = FALSE)
 # userValidation ---------------------------------------------------------------
 userValidation <- function
 (
-  rdd,
-  ### rain data of one day
-  cdd,
-  ### correction data of one day
-  case,
-  ## one row data frame containing date, gauge, rain_mm, corr_mm
+  case, rainData,  
   neighb = NULL,
   ### neighbour matrix
   num.neighb = 2,
@@ -435,100 +306,36 @@ userValidation <- function
   ### further arguments passed to plotRainForValidation
 )
 {
-  ## init result variables
-  result <- list(
-    rd.diff = NULL, ## diff record for rain data
-    cd.diff = NULL, ## diff record for correction data
-    wrong = c(), # indices of wrong signals
-    valid = c(), # new (valid) heights of wrong signals
-    prp = c() # proposed indices of signals to delete
+  gauge <- selectColumns(case, "gauge")
+  
+  rainDataDay <- selectCaseData(rainData, case)
+
+  # Columns of rain data to select. If a neighbour matrix is given, select the 
+  # <num.neighb> nearest neighbours, too
+  columns <- c("tBeg_BWB", gauge, neighbourGauges(gauge, neighb, num.neighb))
+
+  columns <- excludeMissing(columns, available = names(rainDataDay))
+  
+  plotArgs <- list(
+    rd = selectColumns(rainDataDay, columns),
+    title = sprintf("to correct: %0.2f mm\n", case$corr_mm),
+    rdiff = data.frame(decreasingOrder = prp, diff = hts - rdd[prp, gauge]),
+    label = getLabels(n = nrow(rdd), indices = decreasingOrder),
+    dbg = dbg,
+    ...
   )
   
-  ## Get indices of rain signals, odered decreasingly by rain height
-  signals <- selectColumns(rdd, case$gauge)
-  decreasingOrder <- order(signals, decreasing = TRUE)
+  userHeights <- askRepeatedly(
+    askFunction = askForUserHeights,
+    runFunction = plotRainForValidation, 
+    runArgs = plotArgs
+  )
   
-  ## reduce to indices at which rain > 0
-  decreasingOrder <- decreasingOrder[defaultIfNA(signals[decreasingOrder], 0) > 0]
-  
-  ## Cumulate the highest values
-  cumulativeSum <- cumsum(signals[decreasingOrder])
-  
-  ## Is the correction value met by the sum of n highest signals?
-  isMet <- almostEqual(cumulativeSum, case$corr_mm, tolerance)
-  
-  if (any(isMet)) {
-    
-    case$analysis <- sprintf("corr_mm == sum(%d highest sigs)", which(isMet))
-    case$action <- sprintf("set %d highest signals to zero", which(isMet))
-
-    prp <- decreasingOrder[seq_len(sum(isMet))]
-  }
-  else  {
-    case$analysis <- "corr_mm != sum(highest signals)"
-    case$action <- "?"
-  }
-
-  ## Let the user decide if no signals have been marked for deletion so far
-  if (length(wrong) == 0) {
-    
-    dbgInfo$action <- "User decision required ***"
-    cat(formatDebugInfo(dbgInfo))
-    #cat(" -> User decision required...\n")
-    
-    if (ask) {
-      
-      ## Columns of rain data to select
-      cols <- c("tBeg_BWB", gauge)
-      
-      ## If a neighbour matrix is given, select the two nearest neighbours, too
-      cols <- extendToNeighbours(cols, neighb, num.neighb, gauge)
-      cols <- excludeMissing(cols, cols.available = names(rdd))
-      
-      plotArgs <- list(
-        rd = rdd[, cols],
-        title = sprintf("to correct: %0.2f mm\n", case$corr_mm),
-        rdiff = data.frame(decreasingOrder = prp, diff = hts - rdd[prp, gauge]),
-        label = getLabels(n = nrow(rdd), indices = decreasingOrder),
-        dbg = dbg,
-        ...
-      )
-      
-      userHeights <- askRepeatedly(
-        askFunction = askForUserHeights,
-        runFunction = plotRainForValidation, 
-        runArgs = plotArgs
-      )
-      
-      if (! is.null(userHeights)) {
-        
-        # signal ids and new signal heights
-        prp <- selectElements(idsAndHeights, "bars")
-        hts <- selectElements(idsAndHeights, "heights")
-      } 
-      
-    } # if (ask)
-    else {
-      answer <- ""
-      prp <- c()
-      hts <- c()
-    }
-    
-    ## If proposal was accepted with return, mark proposed signals for deletion
-    if (answer == "") {
-      wrong <- prp
-      valid <- hts
-    }
-  }
-  else {
-    valid <- rep(0, length(wrong))
-  }
-  
-  if (length(wrong) > 0) {
+  if (! is.null(userHeights)) {
     
     ## signals to be removed
     sig <- rdd[wrong, gauge] - valid # reduce signals by remaining heights
-    diffs <- getDiffs(selected = wrong)    
+    diffs <- getDiffs(Data = rdd, selected)    
   }
   
   ## Return diff records for rain and correction data
@@ -545,23 +352,23 @@ userValidation <- function
 #       dbg = dbg
 #     )
 
-# extendToNeighbours -----------------------------------------------------------
-extendToNeighbours <- function(cols, neighb = NULL, num.neighb = 0, gauge = "")
+# neighbourGauges --------------------------------------------------------------
+neighbourGauges <- function
+(
+  gauge, neighb = NULL, num.neighb = 0
+)
 {
   if (! is.null(neighb)) {
-    
-    cols.neighb <- names(neighb)[seq_len(num.neighb)]
-    
-    cols <- c(cols, selectColumns(neighb[gauge, ], cols.neighb))
+    neighb[gauge, colnames(neighb)[seq_len(num.neighb)]]
+  } else {
+    NULL
   }
-  
-  cols
 }
 
 # excludeMissing ---------------------------------------------------------------
-excludeMissing <- function(cols, cols.available = names(rdd))
+excludeMissing <- function(cols, available = names(rdd))
 {
-  miscols <- setdiff(cols, cols.available)
+  miscols <- setdiff(cols, available)
   
   if (length(miscols) > 0) {
     
