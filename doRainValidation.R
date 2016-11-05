@@ -85,7 +85,7 @@ rainValidation <- function
   diffs <- guessDifferences(cases, rainData)
 
   # Select all [[1]] or a subset of cases, e.g. for testing [[2]]
-  indices <- list(seq_along(diffs), 1:10)[[1]]
+  indices <- list(seq_len(nrow(cases)), 1:10)[[1]]
   plotCases(cases[indices, ], rainData, diffs[indices])
   
   cases <- cases.all[! isSolved(diffs, cases.all, method = 1), ]
@@ -321,7 +321,6 @@ userValidation <- function
     , rd = rainDataDay[, -(2:3)]
     , main = sprintf("to correct: %0.2f mm\n", selectColumns(case, "corr_mm"))
     #, rdiff = data.frame(decreasingOrder = prp, diff = hts - rdd[prp, gauge])
-    , label = .barLabels(rainDataDay[, -(2:3)])
     , dbg = dbg
     , plotperneighb = TRUE
     #, ...
@@ -367,18 +366,4 @@ neighbourGauges <- function
   } else {
     NULL
   }
-}
-
-# .barLabels -------------------------------------------------------------------
-.barLabels <- function(Data, digits = 1)
-{
-  values <- Data[, 2]
-  isSignal <- values > 0
-  
-  indices <- which(isSignal)[order(- round(values[isSignal], digits))]
-  
-  labels <- rep(NA, nrow(rainDataDay))
-  labels[indices] <- seq_along(indices)
-  
-  labels
 }

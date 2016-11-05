@@ -12,8 +12,6 @@ plotRainForValidation <- function
   ### new heights of bars to be corrected
   #rdiff = NULL,
   ### data frame containing indices and signal differences
-  label = NULL,
-  ### vector of labels
   plotperneighb = FALSE,
   ### one plot per neighbour?
   nrowlab = 5,
@@ -26,13 +24,13 @@ plotRainForValidation <- function
   dbg = FALSE
 )
 {
-  checkArgumentsOrStop(label, n.rows = nrow(rd))
-
   ## prepare matrix plot and restore old graphical parameters on exit
   oldpar <- par(mfrow = c(rowsToPlot(plotperneighb, n.cols = ncol(rd)), 1))
   on.exit(par(oldpar)) 
   
-  args.plot <- plotRainAtGauge(rd, bars, heights, main, dateFormat, label, cex)
+  args.plot <- plotRainAtGauge(
+    rd = rd, bars = bars, heights = heights, main = main,
+    dateFormat = dateFormat, cex = cex)
 
   ## neighbours to plot?
   if (ncol(rd) > 2) {
@@ -46,16 +44,6 @@ plotRainForValidation <- function
       
       allNeighboursInOnePlot(rd, args.plot)
     }
-  }
-}
-
-# checkArgumentsOrStop ---------------------------------------------------------
-checkArgumentsOrStop <- function(label, n.rows)
-{
-  ## If label is given it must contain as many elements as there are rows
-  ## in rd
-  if (! is.null(label) && length(label) != n.rows) {
-    stop("label must contain as many elements as there are rows in rd!")
   }
 }
 
@@ -73,7 +61,8 @@ rowsToPlot <- function(plotperneighb, n.cols)
 plotRainAtGauge <- function
 (
   rd, bars = NULL, heights = NULL, main = "main?", 
-  dateFormat = "%H:%M", label = NULL, 
+  dateFormat = "%H:%M", 
+  label = TRUE, 
   cex = c(legend = 1.0, barid = 1.0), 
   nrowlab = 5,
   case = case
@@ -103,11 +92,12 @@ plotRainAtGauge <- function
     , main = main
   )
   
-  ## label the bars
-  if (! is.null(label)) {
-    indices <- which(label != "")
+  ## label the bars if required
+  if (isTRUE(label)) {
+    barLabels <- .toBarLabels(x = rd[, 2])
+    indices <- which(barLabels != "")
     kwb.plot::addLabels(
-      x[indices], label[indices], y0 = rain.mm[indices], cex = cex["barid"]
+      x[indices], barLabels[indices], y0 = rain.mm[indices], cex = cex["barid"]
     )
   }
   
@@ -134,6 +124,21 @@ plotRainAtGauge <- function
   stopifnot(length(index) == 1)
   
   kwb.plot::niceLabels(timelabels, labelstep = labelstep, offset = index -1)
+}
+
+# .toBarLabels -----------------------------------------------------------------
+.toBarLabels <- function(x, digits = 1)
+{
+  x <- defaultIfNA(x, 0.0)
+  
+  isSignal <- x > 0
+  
+  indices <- which(isSignal)[order(- round(x[isSignal], digits))]
+  
+  labels <- rep(NA, length(x))
+  labels[indices] <- seq_along(indices)
+  
+  labels
 }
 
 # prepareMatrix ----------------------------------------------------------------

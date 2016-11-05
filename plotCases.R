@@ -25,7 +25,7 @@ plotCases <- function
     
     cat("\n***", main, "\n")
 
-    plotCase(case, caseData, diffinfo = diffs[[i]], main = main, ...)
+    plotCase(case, caseData, diffinfo = diffs[[i]], main = main)#, ...)
   }
 }
 
@@ -41,10 +41,10 @@ toPlotTitle <- function(case, marked = 0.0, prefix = "", dateformat = "")
 # plotCase ---------------------------------------------------------------------
 plotCase <- function
 (
-  case, rainDataDay, diffinfo, method = 2, main = "main?", ...
+  case, caseData, diffinfo, method = 2, main = "main?", ...
 )
 {
-  rd <- rainDataDay[, -(2:3)]
+  rd <- caseData[, -(2:3)]
   
   if (method == 1) {
     plotRainAtGauge(rd, main = main)
