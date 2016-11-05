@@ -188,15 +188,15 @@ onePlotPerNeighbour <- function(rd, args.plot)
 }
 
 # .ylim ------------------------------------------------------------------------
-.ylim <- function(x, step = 1.0)
+.ylim <- function(x, step = 1.0, extra = 0)
 {
   ymax <- step * ceiling(max(x, na.rm = TRUE) / step)
   ymax <- ifelse(isTRUE(all.equal(ymax, 0)), 1, ymax)
-  c(0, ymax)
+  c(0, ymax * (1 + extra))
 }
 
 # allNeighboursInOnePlot -------------------------------------------------------
-allNeighboursInOnePlot <- function(rd, args.plot, cex.legend)
+allNeighboursInOnePlot <- function(rd, args.plot, cex.legend = 1)
 {
   gauges <- names(rd)[-(1:2)]
   
