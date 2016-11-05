@@ -91,7 +91,7 @@ analyseCase <- function
 
 # selectCaseData ---------------------------------------------------------------
 selectCaseData <- function(rainData, case, neighb = NULL, num.neighb = 0,
-                           trim = FALSE)
+                           trim = FALSE, n.context = 2)
 {
   gauge <- selectColumns(case, "gauge")
   
@@ -110,6 +110,8 @@ selectCaseData <- function(rainData, case, neighb = NULL, num.neighb = 0,
   if (trim) {
     values <- selectElements(rainDataDay, gauge)
     indexRange <- range(which(values > 0))
+    indexRange[1] <- max(c(indexRange[1] - n.context, 1))
+    indexRange[2] <- min(c(indexRange[2] + n.context, length(values)))
     rainDataDay <- rainDataDay[do.call(seq, as.list(indexRange)), ]
   }
   
