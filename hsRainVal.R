@@ -11,6 +11,8 @@ kwb.utils::sourceScripts(file.path(
     "plotRainForValidation.R")
 ))
 
+write.to <- c(mdb = FALSE, csv = FALSE)
+
 ## Idea of a good validation procedure =========================================
 ##
 ## 01. Load raw rain signals from xls -> rd.orig
@@ -33,10 +35,12 @@ kwb.utils::sourceScripts(file.path(
 ## 13. Write fi to mdb::tbl_4_Failure
 
 # Rain validation of BWB rain data (provided in xls-files) =====================
+
+gauges <- NULL # DELETE AFTER TESTING!
+
 if (FALSE)
 {
   xls.dir <- .xlsdir(home = FALSE)
-  write.to <- c(mdb = FALSE, csv = FALSE)
   
   ## Step 01: Load raw rain signals from xls
   paths <- getPathsForRainValidation(xls.dir, example = 4)
