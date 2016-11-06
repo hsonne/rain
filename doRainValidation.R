@@ -60,7 +60,7 @@ rainValidation <- function
   ### data frame with rain data
   corrData,
   ### data frame with rain correction data
-  gauges = names(rainData)[-(1:2)],
+  gauges = names(rainData)[- c(1, 2)],
   ### names of gauges to be validated. Default: names of columns 3:ncol(rd)
   tolerance = 0.001,
   dbg = FALSE,
@@ -69,21 +69,36 @@ rainValidation <- function
   ### further arguments passed to validateRainDay, such as neighb, devPdf, ask
 )
 {
-  cases.all <- kwb.rain::getCorrectionCases(corrData, rainData)
+  #gauges = names(rainData)[- c(1, 2)]
+  system.time(
+    cases.all.1 <- kwb.rain::getCorrectionCases(corrData, rainData)
+  )
   
+  system.time({
+      rainSums <- rowSums(selectColumns(rainData, gauges)) #, na.rm = TRUE)
+      rainSignals <- rainData[is.na(rainSums) | rainSums > 0, ]
+      cases.all.2 <- kwb.rain::getCorrectionCases(corrData, rainSignals)
+  })
+
+  identical(cases.all.1[, ], cases.all.2[, ])
+
   #gauges = names(rainData)[-(1:2)]
   showOverviewMessages(gauges, gauges.corr = names(corrData), cases.all)
   
   #cases <- prevalidate(cases.all, tolerance = 0.001)
-  cases <- cases.all
+  cases <- cases.all.1
   
   # From the undecided cases, look for cases in which the correction value
   # equals a sum of highest signals or the sum of the highest signal and its
   # left or right neighbours
   rainData$day <- hsDateStr(rainData[, 1])
+  rainSignals$day <- hsDateStr(rainSignals[, 1])
   
-  diffs <- guessDifferences(cases, rainData)
-
+  system.time(capture.output(diffs.1 <- guessDifferences(cases.all.1, rainData)))
+  system.time(capture.output(diffs.2 <- guessDifferences(cases.all.2, rainSignals)))
+  
+  identical(diffs.1, diffs.2)
+  
   # Select all [[1]] or a subset of cases, e.g. for testing [[2]]
   indices <- list(seq_len(nrow(cases)), 1:10)[[1]]
   plotCases(cases[indices, ], rainData, diffs[indices])
