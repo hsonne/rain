@@ -5,11 +5,13 @@ library(lattice)
 library(kwb.db) # for hsSqlQuery
 library(kwb.datetime) # for hsDateStr
 
-kwb.utils::sourceScripts(file.path(
-  "/home/hauke/RProgramming/github/rain",
-  c("plotCases.R", "prevalidate.R", "doRainValidation.R", 
-    "plotRainForValidation.R")
-))
+scriptdir <- "/home/hauke/RProgramming/github/rain"
+
+scripts <- c("applyCorrection", "convert", "doRainValidation", "neighbour", 
+             "plotCases", "plotRainForValidation", "prevalidate", "replaceNA", 
+             "userPaths")
+
+sourceScripts(file.path(scriptdir, paste0(scripts, ".R")))
 
 write.to <- c(mdb = FALSE, csv = FALSE)
 
@@ -34,12 +36,11 @@ write.to <- c(mdb = FALSE, csv = FALSE)
 ## 12. Load gauge failure information from file prepared in step 11 -> fi
 ## 13. Write fi to mdb::tbl_4_Failure
 
-# Rain validation of BWB rain data (provided in xls-files) =====================
-
-gauges <- NULL # DELETE AFTER TESTING!
-
-if (FALSE)
+# Get BWB rain data (from xls-files) for validation ----------------------------
+if (TRUE)
 {
+  gauges <- NULL # DELETE AFTER TESTING!
+  
   xls.dir <- .xlsdir(home = FALSE)
   
   ## Step 01: Load raw rain signals from xls
@@ -62,9 +63,16 @@ if (FALSE)
     save(rainData, corrData, file = file)
   }
   
+  # Provide a matrix containing for each gauge its nearest neighbour gauges
+  neighb <- getNeighbourMatrix(gauges = names(rainData)[-(1:2)])[, 1:2]
+}
+
+# Do the validation ------------------------------------------------------------
+if (FALSE)
+{
   ## Step 07: Auto-validation(rd, cd) -> negative correction values in rd.diff
   system.time(out <- capture.output(
-    corr <- doRainValidation(rainData, corrData, ask = FALSE)
+    corr <- doRainValidation(rainData, corrData, neighb = neighb, ask = FALSE)
   ))
   
   cases1 <- rbindAll(corr$RESULT)
@@ -211,386 +219,6 @@ if (FALSE)
   ##
   ## Manually: write screen output to hsValLog.txt...
   ##
-}
-
-# .testdir ---------------------------------------------------------------------
-.testdir <- function()
-{
-  kwb.utils::createDirAndReturnPath(file.path(desktop(), "tmp/RTest"))
-}
-
-# .xlsdir ----------------------------------------------------------------------
-.xlsdir <- function(home = FALSE) {
-  if (home) {
-    "C:/Dokumente und Einstellungen/Key Hauke/Desktop/tmp/Regen/validiert_2007"
-  }
-  else {
-    #"//moby/miacso$/Daten/EXTERN/BWB/Regen_BWB/2_VAL"
-    "C:/Users/hsonne/Desktop/tmp/BwbRain/validiert_2007"
-  }
-}
-
-# getPathsForRainValidation: Set example paths or let the user choose ----------
-getPathsForRainValidation <- function(xls.dir = "", example = 0)
-{
-  ## Rain data of 2011 Q4:
-  ## //moby/miacso$/Daten/EXTERN/BWB/Regen_BWB/ab2008/2011_Q4/roh/
-  ##   Regenschreiberdaten-Q4-2011.xls
-  ## has been saved as:
-  #xls.dir <- "//moby/miacso$/Daten/EXTERN/BWB/Regen_BWB/ab2008/_VAL/validiert_2011_Q4"
-  
-  if (example == 0) {
-    
-    # Arguments to file.choose()
-    args <- args_file.choose(xls.dir)
-    
-    xls.rd <- callWith(
-      choose.files, args, caption = "Select rain gauge data file..."
-    )
-    
-    xls.cd <- callWith(
-      choose.files, args, caption = "Select rain correction data file..."
-    )
-    
-  } else if (example == 1) {
-    
-    xls.rd <- file.path(xls.dir, "Regenschreiberdaten-Q4-2011_hs.xls")
-    xls.cd <- file.path(xls.dir, "2011 KWB Regenschreiber Validierung_hs.xls")
-    
-  } else if (example == 2) {
-    
-    xls.dir <- "//moby/miacso$/Daten/EXTERN/BWB/Regen_BWB/2_Prep"
-    
-    xls.rd <- file.path(xls.dir, "Regen_2012_hs.xlsx")
-    xls.cd <- file.path(xls.dir, "RegenValidierung_2012_hs.xls")
-    
-  } else if (example == 3) {
-    
-    xls.dir <- "/home/hauke/Desktop/2_Prep"
-    
-    xls.rd <- file.path(xls.dir, "Regen_2011_hs.csv")
-    xls.cd <- file.path(xls.dir, "RegenValidierung_2011_hs.csv")
-    
-  } else if (example == 4) {
-    
-    xls.dir <- "/home/hauke/Desktop/2_Prep"
-    
-    xls.rd <- file.path(xls.dir, "Regen_2012_hs.csv")
-    xls.cd <- file.path(xls.dir, "RegenValidierung_2012_hs.csv")
-    
-  } else {
-    stop("Example not in 0 ... 3!")
-  }
-  
-  list(xls.rd = xls.rd, xls.cd = xls.cd)
-}
-
-# args_file.choose -------------------------------------------------------------
-args_file.choose <- function(xls.dir)
-{
-  extensions <- "*.xls;*.xlsx"
-  
-  list(
-    default = file.path(xls.dir, extensions),
-    filters = matrix(c("Excel files", extensions), byrow = TRUE, nrow = 1)
-  )
-}
-
-# applyCorrection --------------------------------------------------------------
-applyCorrection <- function # Apply corrections according to validation
-### Apply corrections according to validation
-(
-  rd,
-  ### rain data
-  cd,
-  ### original correction data
-  corr,
-  ### detailed correction data as returned by rainValidation
-  dbg = FALSE
-)
-{
-  list(
-    rd = applyCorrectionToRain(rd, corr$rd.diff, dbg = dbg),
-    cd = applyCorrectionToCorr(cd, corr$cd.diff, dbg = dbg)
-  )
-}
-
-# applyCorrectionToRain --------------------------------------------------------
-applyCorrectionToRain <- function
-(
-  rd,
-  dd,
-  zero.thresh = 0.001,
-  dbg = FALSE
-)
-{
-  nrrd <- nrow(rd)
-  nrdd <- nrow(dd)
-  
-  ## Loop through diff datasets
-  for (i in 1:nrdd) {
-    tb <- dd$tBeg_BWB[i]
-    te <- dd$tEnd_BWB[i]
-    gg <- as.character(dd$gauge[i])
-    idx <- (1:nrrd)[((rd$tBeg_BWB == tb) & (rd$tEnd_BWB == te))]
-    rd[idx, gg] <- rd[idx, gg] + dd$diff_mm[i]
-    
-    ## Set values that are almost zero to zero
-    if (rd[idx, gg] < zero.thresh) rd[idx, gg] <- 0
-  }
-  
-  rd
-  
-}
-
-# applyCorrectionToCorr --------------------------------------------------------
-applyCorrectionToCorr <- function(cd, dd, zero.thresh = 0.001, dbg = FALSE)
-{
-  nrcd <- nrow(cd)
-  nrdd <- nrow(dd)
-  
-  catIf(dbg, sprintf("nrcd: %d, nrdd: %d\n", nrcd, nrdd))
-  
-  ## Loop through diff datasets
-  for (i in 1:nrdd) {
-    gg <- as.character(dd$gauge[i])
-    
-    catIf(dbg, sprintf("i: %3d, gg: %s\n", i, gg))
-    
-    idx <- (1:nrcd)[cd$tDate_BWB == dd$tDate_BWB[i]]
-    cd[idx, gg] <- cd[idx, gg] + dd$diff_mm[i]
-    
-    ## Set values that are almost zero to zero
-    if (cd[idx, gg] < zero.thresh) {
-      cd[idx, gg] <- 0
-    }
-    
-  }
-  
-  ## Update sum and absolute sum
-  for (i in seq_len(nrcd)) {
-    values <- cd[i, 2:(ncol(cd)-3)]
-    cd$sum[i] <- sum(values)
-    cd$abssum[i] <- sum(abs(values))
-  }
-  
-  cd
-}
-
-# replaceNaInRain --------------------------------------------------------------
-replaceNaInRain <- function
-# Replace NA values in rain data with rain data from neighbour gauges
-(
-  rd,
-  ### data frame with first two columns tBeg_BWB and tEnd_BWB and remaining
-  ### columns containing rain heights in mm
-  smode = "meanOfNearest",
-  ### substitution mode
-  neighb = NULL,
-  ### matrix of gauge neighbours as returned by distanceToNeighbour
-  mdist = NULL,
-  ### matrix of distances
-  maxdist = 15300,
-  maxgauges = 2,
-  dbg = TRUE
-)
-{
-  ## Check prerequisites
-  if (smode == "nearest") {
-    if (is.null(neighb)) {
-      stop("neighbour matrix 'neighb' needed!")
-    }
-  }
-  else if (smode == "meanOfNearest") {
-    if (is.null(mdist)) {
-      stop("distance matrix 'mdist' needed!")
-    }
-  }
-  else {
-    stop("Unknown substitution mode:", smode)
-  }
-  
-  cat(paste("*** NA values are substituted by mean of non-NA signals",
-            sprintf("of gauges in max. %d m distance around gauge with NA value\n",
-                    maxdist)))
-  
-  ## Find indices of rows containing at least one NA value
-  rd.na <- matrix(as.integer(is.na(rd[, -c(1,2)])), nrow = nrow(rd))
-  
-  idx <- which(rowSums(rd.na) > 0)
-  
-  if (isTRUE(dbg)) {
-    printIf(TRUE, idx, "Rows containing NA")
-    rd.tmp <- rd[idx, ]
-    rd.tmp[, -(1:2)] <- round(rd.tmp[, -(1:2)], 1)
-    printIf(TRUE, rd.tmp, "Rounded values")
-  }
-  
-  ## Loop through rows containing NAs
-  for (i in idx) {
-    
-    ## Print timestamp
-    
-    #@2012-03-15
-    #cat(sprintf("%s;%s", rd[i, 1], rd[i, 2]))
-    
-    ## If row sum is 0, set all gauge signals to 0
-    if (sum(rd[i, -c(1, 2)], na.rm = TRUE) == 0) {
-      rd[i, -c(1, 2)] <- 0
-      
-      #@2012-03-15
-      #cat(";all NA -> 0.0 mm (all non-NA = 0.0 mm)\n")
-    }
-    else {
-      
-      #browser(expr=TRUE)
-      
-      ## Do the following modifications on copy of current row
-      rd.row <- rd[i, ]
-      
-      printIf(dbg, rd.row, "Current row")
-      
-      # names of gauges holding NA value
-      na.gauges <- names(rd)[is.na(rd.row)]
-      
-      printIf(dbg, na.gauges, "gauges with NA signal")
-      
-      ## Print timestamp
-      #@2012-03-15
-      cat(sprintf("%s", rd[i, 1]))
-      
-      ## Loop through columns containing NA
-      for (gg in na.gauges) {
-        
-        if (smode == "nearest") {
-          sv <- getNearestNonNA(rd[i, ], neighb[rownames(neighb) == gg, ])
-          cat(sprintf(";subst(%s)=%0.2f", gg, sv))
-        }
-        else if (smode == "meanOfNearest") {
-          sv <- getMeanOfNearest(rd[i, ], gg, mdist, maxdist, maxgauges, dbg = dbg)
-        }
-        
-        rd.row[1, gg] <- sv
-      }
-      cat("\n")
-      
-      ## Assign the new row
-      rd[i, ] <- rd.row
-    }
-  }
-  
-  ## Return rain data
-  rd
-}
-
-# getNearestNonNA: helper function for replaceNaInRain -------------------------
-getNearestNonNA <- function(rdrow, neighb) 
-{
-  sig <- NA
-  k <- 0
-  
-  while (k < length(neighb) && is.na(sig)) {
-    
-    k <- k + 1
-    ngb <- neighb[k]
-    sig <- rdrow[, ngb]
-    # cat(sprintf("Rain signal of %d. neighbour %s: %0.2f\n", k, ngb, sig))
-  }
-  
-  sig
-}
-
-# getMeanOfNearest: helper function for replaceNaInRain ------------------------
-getMeanOfNearest <- function
-(
-  rdrow,
-  gauge,
-  mdist,
-  maxdist,
-  maxgauges,
-  dbg = TRUE
-)
-{
-  sig <- NA
-  
-  ## find neighbour gauges within maxdist but no more than <maxgauges>
-  ## neighbours
-  
-  #nnames <- names(mdist[gauge, mdist[gauge, ] < maxdist])
-  ## exclude gauge name itself
-  #nnames <- setdiff(nnames, gauge)
-  
-  inReach <- mdist[gauge, mdist[gauge, ] < maxdist]
-  nnames <- names(inReach)[order(inReach)][2:(maxgauges + 1)]
-  
-  if (length(nnames) > 0) {
-    nnames <- as.character(na.omit(nnames)) ## Remove NA
-  }
-  else {
-    printIf(TRUE, inReach, "inReach")
-    printIf(TRUE, gauge, "gauge")
-    printIf(TRUE, rdrow, "drow")
-  }
-  
-  if (length(nnames) > 0) {
-    
-    ## Calculate the mean of the values measured at these neighbour gauges
-    rvals <- as.numeric(rdrow[1, nnames])
-    
-    printIf(dbg, rvals, "avail. values")
-    
-    sig <- mean(rvals, na.rm = TRUE)
-    
-    cat(sprintf(
-      ";%s = %0.2f mm [= mean(%s)]", gauge, sig, paste(
-        nnames, sprintf("%5.2f", rdrow[, nnames]), sep = " = ", collapse = ", "
-      )
-    ))
-  }
-  else {
-    cat(sprintf(";%s = NA (no gauges within %d m!)", gauge, maxdist))
-  }
-  
-  ## Return mean signal
-  sig
-}
-
-# additionalTimeColumns --------------------------------------------------------
-additionalTimeColumns <- function(rd)
-{
-  datetimes <- selectColumns(rd, "tBeg_BWB")
-  
-  # Convert summer time to winter time
-  datetimes.wt <- kwb.base::hsST2WT(tstamps = datetimes)
-  
-  data.frame(
-    tDate_BWB = as.Date(datetimes),
-    tBeg_DST  = (datetimes != datetimes.wt),
-    tBeg_UTCp1 = datetimes.wt
-  )
-}
-
-# rainToLongFormat -------------------------------------------------------------
-rainToLongFormat <- function(rd)
-{
-  hsMatrixToListForm(
-    rd,
-    keyFields = c("tBeg_DST", "tBeg_BWB", "tEnd_BWB", "tDate_BWB", "tBeg_UTCp1"),
-    colNamePar = "gauge",
-    colNameVal = "raw_mm"
-  )
-}
-
-# corrToLongFormat -------------------------------------------------------------
-corrToLongFormat <- function(cd)
-{
-  hsMatrixToListForm(
-    cd,
-    keyFields = "tDate_BWB",
-    parFields = setdiff(names(cd), c("tDate_BWB", "sum", "abssum")),
-    colNamePar = "gauge",
-    colNameVal = "corr_mm"
-  )
 }
 
 # DST time to UTC1 =============================================================

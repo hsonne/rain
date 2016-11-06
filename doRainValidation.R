@@ -1,56 +1,23 @@
 # doRainValidation -------------------------------------------------------------
 doRainValidation <- function
 (
-  rainData,
-  ### rain data
-  corrData,
-  ### correction data
-  ask = FALSE,
+  ...,
   ### passed to rainValidation
   to.pdf = FALSE
+  ### if \code{TRUE} all graphical outputs go into a PDF file
 )
 {
   ## Prepare pdf device but do not set current device to pdf device
   file.pdf <- preparePdfIf(to.pdf, makeCurrent = FALSE)
   
-  neighb <- getNeighbourMatrix(gauges = names(rainData)[-(1:2)])
-  
   ## Call the rain validation routine
   corr <- rainValidation(
-    rainData,
-    corrData,
-    neighb = neighb, # passed to validateRainDay
-    devPdf = kwb.base::hsPdfDev(), # passed to validateRainDay
-    plotperneighb = FALSE,
-    num.neighb = 2,
-    cex = c(legend = 1.1, barid = 0.8),
-    ask = ask, # passed to validateRainDay
-    dbg = FALSE
+    ..., devPdf = kwb.base::hsPdfDev(), cex = c(legend = 1.1, barid = 0.8), 
+    plotperneighb = FALSE, dbg = FALSE
   )
   
+  ## Close the PDF connection and open the file in the PDF viewer
   finishAndShowPdfIf(to.pdf, file.pdf, which = kwb.base::hsPdfDev())
-  
-  corr
-}
-
-# getNeighbourMatrix -----------------------------------------------------------
-getNeighbourMatrix <- function(gauges = NULL)
-{
-  if (file.exists(kwb.read::mdb_rain_meta())) {
-    distanceToNeighbour(getGaugeDistances())
-  } else {
-    message("no neighbour data available, using random neighbours!")
-    randomNeighbours(gauges)
-  }
-}
-
-# randomNeighbours -------------------------------------------------------------
-randomNeighbours <- function(gauges)
-{
-  structure(
-    do.call(rbind, lapply(seq_along(gauges), function(i) sample(gauges[-i]))),
-    dimnames = list(gauges, paste0("n", seq_len(length(gauges) - 1)))
-  )
 }
 
 # rainValidation ---------------------------------------------------------------
@@ -60,9 +27,12 @@ rainValidation <- function
   ### data frame with rain data
   corrData,
   ### data frame with rain correction data
+  neighb = NULL,
+  ### matrix of gauge neighbours
   gauges = NULL,
   ### names of gauges to be validated. Default: names of columns 3:ncol(rd)
   tolerance = 0.001,
+  ### used for "almost equal" comparison of numeric values. Default: 0.001
   dbg = FALSE,
   ### if \code{TRUE} debug messages are shown
   ...
@@ -92,9 +62,8 @@ rainValidation <- function
   # Select all [[1]] or a subset of cases, e.g. for testing [[2]]
   indices <- list(seq_len(nrow(cases)), 1:10)[[1]]
 
-  system.time(plotCases(cases[indices, ], rainData, diffs[indices], method = 1))
-  system.time(plotCases(cases[indices, ], rainData, diffs[indices], method = 2))
-  
+  plotCases(cases[indices, ], rainData, diffs[indices])
+
   cases <- cases.all[! isSolved(diffs, cases.all, method = 1), ]
   
   # Loop through the remaining cases
@@ -116,7 +85,7 @@ rainValidation <- function
       ...
     )
   })
-  
+
   list(
     rd.diff = rbindAll(lapply(results, "[[", "rd.diff")), 
     cd.diff = rbindAll(lapply(results, "[[", "cd.diff")), 
