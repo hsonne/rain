@@ -62,8 +62,18 @@ rainValidation <- function
   # Select all [[1]] or a subset of cases, e.g. for testing [[2]]
   indices <- list(seq_len(nrow(cases)), 1:10)[[1]]
 
-  plotCases(cases[indices, ], rainData, diffs[indices])
-
+  commonArgs <- list(cases = cases[indices, ], rainData = rainData, 
+                     diffs = diffs[indices])
+  
+  pdfArgs <- list(landscape = list(landscape = TRUE),
+                  portrait = list(landscape = FALSE))
+  
+  caseArgs <- list(list(plotperneighb = FALSE, args.pdf = pdfArgs$landscape),
+                   list(plotperneighb = TRUE, args.pdf = pdfArgs$portrait))
+  
+  callWith(plotCases, commonArgs, caseArgs[[1]])
+  callWith(plotCases, commonArgs, caseArgs[[2]])
+  
   cases <- cases.all[! isSolved(diffs, cases.all, method = 1), ]
   
   # Loop through the remaining cases

@@ -2,7 +2,7 @@
 #neighb = NULL;num.neighb = 0;trim = FALSE
 plotCases <- function
 (
-  cases, rainData, diffs = NULL, trim = TRUE, to.pdf = TRUE,
+  cases, rainData, diffs = NULL, trim = TRUE, to.pdf = TRUE, args.pdf = NULL,
   ...
   ### passed to plotCase
 )
@@ -15,7 +15,7 @@ plotCases <- function
   rainDays <- unique(cases$day)
   rainData <- rainData[rainData$day %in% as.character(rainDays), ]
 
-  file.pdf <- preparePdfIf(to.pdf)
+  file.pdf <- callWith(preparePdfIf, args.pdf, to.pdf = to.pdf)
   on.exit(finishAndShowPdfIf(to.pdf, file.pdf))
   
   for (i in seq_len(nrow(cases))) {
@@ -29,7 +29,10 @@ plotCases <- function
     
     cat("\n***", main, "\n")
 
-    plotCase(case, caseData, diffinfo = diffs[[i]], main = main)#, ...)
+    plotCase(
+      case, caseData, diffinfo = diffs[[i]], main = main
+      , ...
+    )
   }
 }
 
@@ -60,7 +63,7 @@ plotCase <- function
       , main = main
       #, rdiff = data.frame(decreasingOrder = prp, diff = hts - rdd[prp, gauge])
       #, label = .barLabels(rd)
-      #, ...
+      , ...
     )
     
     callWith(plotRainForValidation, plotArgs)

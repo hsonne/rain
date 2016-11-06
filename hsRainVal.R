@@ -64,7 +64,7 @@ if (TRUE)
   }
   
   # Provide a matrix containing for each gauge its nearest neighbour gauges
-  neighb <- getNeighbourMatrix(gauges = names(rainData)[-(1:2)])[, 1:2]
+  neighb <- getNeighbourMatrix(gauges = names(rainData)[-(1:2)])[, 1:3]
 }
 
 # Do the validation ------------------------------------------------------------
