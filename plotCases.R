@@ -4,11 +4,17 @@ plotCases <- function
 (
   cases, rainData, diffs = NULL, 
   neighb = NULL, num.neighb = 0, trim = TRUE, to.pdf = TRUE,
+  method = 1, # 1: use all rain data, 2: use only rain data of rain days
   ...
 )
 {
   if (! is.null(diffs)) {
     stopifnot(nrow(cases) == length(diffs))
+  }
+
+  if (method == 2) {
+    rainDays <- unique(cases$day)
+    rainData <- rainData[rainData$day %in% as.character(rainDays), ]
   }
 
   file.pdf <- preparePdfIf(to.pdf)
