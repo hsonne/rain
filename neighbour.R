@@ -17,3 +17,16 @@ randomNeighbours <- function(gauges)
     dimnames = list(gauges, paste0("n", seq_len(length(gauges) - 1)))
   )
 }
+
+# neighbourGauges --------------------------------------------------------------
+neighbourGauges <- function
+(
+  gauge, neighb = NULL, num.neighb = ncol(neighb)
+)
+{
+  if (! is.null(neighb)) {
+    neighb[gauge, colnames(neighb)[seq_len(num.neighb)]]
+  } else {
+    NULL
+  }
+}

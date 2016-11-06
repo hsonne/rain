@@ -330,16 +330,3 @@ userValidation <- function
 #       case$corr_mm, 
 #       dbg = dbg
 #     )
-
-# neighbourGauges --------------------------------------------------------------
-neighbourGauges <- function
-(
-  gauge, neighb = NULL, num.neighb = 0
-)
-{
-  if (! is.null(neighb)) {
-    neighb[gauge, colnames(neighb)[seq_len(num.neighb)]]
-  } else {
-    NULL
-  }
-}
