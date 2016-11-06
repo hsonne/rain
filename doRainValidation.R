@@ -276,7 +276,7 @@ userValidation <- function
   case, rainData,  
   neighb = NULL,
   ### neighbour matrix
-  num.neighb = 2,
+  num.neighb = ncol(neighb),
   ### how many neighbours are to be shown for comparison?
   tolerance,
   rd.digits,

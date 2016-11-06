@@ -90,8 +90,11 @@ analyseCase <- function
 }
 
 # selectCaseData ---------------------------------------------------------------
-selectCaseData <- function(rainData, case, neighb = NULL, num.neighb = 0,
-                           trim = FALSE, n.context = 2)
+selectCaseData <- function
+(
+  rainData, case, neighb = NULL, num.neighb = ncol(neighb), trim = FALSE, 
+  n.context = 2
+)
 {
   gauge <- selectColumns(case, "gauge")
   
@@ -100,7 +103,7 @@ selectCaseData <- function(rainData, case, neighb = NULL, num.neighb = 0,
   
   # Which columns (belonging to the gauge of the current case and neighbour 
   # columns, if required) are to be selected?
-  neighbours <- neighbourGauges(gauge, neighb, num.neighb)
+  neighbours <- neighbourGauges(gauge, neighb)
   
   columns <- c(names(rainData)[1:2], "day", gauge, neighbours)
   

@@ -2,9 +2,9 @@
 #neighb = NULL;num.neighb = 0;trim = FALSE
 plotCases <- function
 (
-  cases, rainData, diffs = NULL, 
-  neighb = NULL, num.neighb = 0, trim = TRUE, to.pdf = TRUE,
+  cases, rainData, diffs = NULL, trim = TRUE, to.pdf = TRUE,
   ...
+  ### passed to plotCase
 )
 {
   if (! is.null(diffs)) {
@@ -22,7 +22,7 @@ plotCases <- function
     
     case <- cases[i, ]
   
-    caseData <- selectCaseData(rainData, case, neighb, num.neighb, trim = trim)
+    caseData <- selectCaseData(rainData, case, neighb, trim = trim)
     
     main <- toPlotTitle(case = case, marked = 0, #sum(rdiff$diff)
                         prefix = sprintf("Case %d/%d - ", i, nrow(cases)))
