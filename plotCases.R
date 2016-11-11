@@ -1,5 +1,4 @@
 # plotCases --------------------------------------------------------------------
-#neighb = NULL;num.neighb = 0;trim = FALSE
 plotCases <- function
 (
   cases, rainData, diffs = NULL, trim = TRUE, to.pdf = TRUE, args.pdf = NULL,
@@ -21,7 +20,7 @@ plotCases <- function
   for (i in seq_len(nrow(cases))) {
     
     case <- cases[i, ]
-  
+
     caseData <- selectCaseData(rainData, case, neighb, trim = trim)
     
     main <- toPlotTitle(case = case, marked = 0, #sum(rdiff$diff)
@@ -58,14 +57,33 @@ plotCase <- function
     plotRainAtGauge(rd, main = main)
   } else if (method == 2) {
     plotArgs <- list(
-      NULL
-      , rd = rd
-      , main = main
+      rd = rd, main = main
       #, rdiff = data.frame(decreasingOrder = prp, diff = hts - rdd[prp, gauge])
       #, label = .barLabels(rd)
-      , ...
+      #, ...
     )
+
+    barheights <- .toBarheights(rd, diffinfo)
     
-    callWith(plotRainForValidation, plotArgs)
+    callWith(plotRainForValidation, plotArgs, barheights = barheights)
   }
+}
+
+# .toBarheights ----------------------------------------------------------------
+.toBarheights <- function(rd, diffinfo)
+{
+  if (is.null(diffinfo)) {
+    return(NULL)
+  }
+  
+  rd$bar <- seq_len(nrow(rd))
+  
+  columns <- c(names(rd)[1], "value.new")
+  y <- selectColumns(selectElements(diffinfo, "data"), columns)
+  
+  rd <- merge(x = rd, y = y, all.x = TRUE)
+  
+  barheights <- selectColumns(rd, c("bar", "value.new"))
+  
+  barheights[! is.na(barheights[, 2]), ]
 }

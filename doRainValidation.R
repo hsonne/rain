@@ -59,11 +59,7 @@ rainValidation <- function
   
   diffs <- guessDifferences(cases.all, rainSignals)
 
-  # Select all [[1]] or a subset of cases, e.g. for testing [[2]]
-  indices <- list(seq_len(nrow(cases)), 1:10)[[1]]
-
-  commonArgs <- list(cases = cases[indices, ], rainData = rainData, 
-                     diffs = diffs[indices])
+  commonArgs <- list(cases = cases, rainData = rainData, diffs = diffs)
   
   pdfArgs <- list(landscape = list(landscape = TRUE),
                   portrait = list(landscape = FALSE))
