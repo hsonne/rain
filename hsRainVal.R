@@ -72,7 +72,7 @@ if (FALSE)
 {
   ## Step 07: Auto-validation(rd, cd) -> negative correction values in rd.diff
   system.time(out <- capture.output(
-    corr <- doRainValidation(rainData, corrData, neighb = neighb, ask = FALSE)
+    corr <- rainValidation(rainData, corrData, neighb = neighb, ask = FALSE)
   ))
   
   cases1 <- rbindAll(corr$RESULT)

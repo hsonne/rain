@@ -1,25 +1,3 @@
-# doRainValidation -------------------------------------------------------------
-doRainValidation <- function
-(
-  ...,
-  ### passed to rainValidation
-  to.pdf = FALSE
-  ### if \code{TRUE} all graphical outputs go into a PDF file
-)
-{
-  ## Prepare pdf device but do not set current device to pdf device
-  file.pdf <- preparePdfIf(to.pdf, makeCurrent = FALSE)
-  
-  ## Call the rain validation routine
-  corr <- rainValidation(
-    ..., devPdf = kwb.base::hsPdfDev(), cex = c(legend = 1.1, barid = 0.8), 
-    plotperneighb = FALSE, dbg = FALSE
-  )
-  
-  ## Close the PDF connection and open the file in the PDF viewer
-  finishAndShowPdfIf(to.pdf, file.pdf, which = kwb.base::hsPdfDev())
-}
-
 # rainValidation ---------------------------------------------------------------
 rainValidation <- function
 (
@@ -33,12 +11,22 @@ rainValidation <- function
   ### names of gauges to be validated. Default: names of columns 3:ncol(rd)
   tolerance = 0.001,
   ### used for "almost equal" comparison of numeric values. Default: 0.001
+  to.pdf = FALSE,
+  ### if \code{TRUE} all graphical outputs go into a PDF file
   dbg = FALSE,
   ### if \code{TRUE} debug messages are shown
   ...
   ### further arguments passed to validateRainDay, such as neighb, devPdf, ask
 )
 {
+  ## Prepare pdf device but do not set current device to pdf device
+  file.pdf <- preparePdfIf(to.pdf, makeCurrent = FALSE)
+  
+  ## Call the rain validation routine
+  #devPdf <- kwb.base::hsPdfDev()
+  #cex <- c(legend = 1.1, barid = 0.8)
+  #plotperneighb <- FALSE
+  
   gauges <- defaultIfNULL(gauges, names(rainData)[- c(1, 2)])
 
   rainSums <- rowSums(selectColumns(rainData, gauges)) #, na.rm = TRUE)
@@ -91,6 +79,9 @@ rainValidation <- function
     )
   })
 
+  ## Close the PDF connection and open the file in the PDF viewer
+  finishAndShowPdfIf(to.pdf, file.pdf, which = kwb.base::hsPdfDev())
+  
   list(
     rd.diff = rbindAll(lapply(results, "[[", "rd.diff")), 
     cd.diff = rbindAll(lapply(results, "[[", "cd.diff")), 
