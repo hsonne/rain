@@ -28,9 +28,9 @@ plotCases <- function
     
     cat("\n***", main, "\n")
     
-    plotCase(
-      case, caseData, diffinfo = diffs[[i]], main = main
-      , ...
+    plotCase(case, caseData, diffinfo = diffs[[i]], main = main
+      #, method = 1 
+      #, ...
     )
   }
 }
@@ -72,15 +72,16 @@ plotCase <- function
   if (is.null(diffinfo)) {
     return(NULL)
   }
+
+  diffdata <- selectElements(diffinfo, "data")
   
-  rd$bar <- seq_len(nrow(rd))
+  values <- selectColumns(merge(
+    x = rd[, 1:2], 
+    y = selectColumns(diffdata, c(names(rd)[1], "value.new")), 
+    all.x = TRUE
+  ), "value.new")
   
-  columns <- c(names(rd)[1], "value.new")
-  y <- selectColumns(selectElements(diffinfo, "data"), columns)
+  selected <- ! is.na(values)
   
-  rd <- merge(x = rd, y = y, all.x = TRUE)
-  
-  barheights <- selectColumns(rd, c("bar", "value.new"))
-  
-  barheights[! is.na(barheights[, 2]), ]
+  data.frame(bar = which(selected), value = values[selected])
 }
