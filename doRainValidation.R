@@ -59,16 +59,15 @@ rainValidation <- function
   
   diffs <- guessDifferences(cases.all, rainSignals)
 
-  commonArgs <- list(cases = cases, rainData = rainData, diffs = diffs)
+  args.common <- list(cases = cases, rainData = rainData, diffs = diffs)
+
+  args.case <- list(
+    list(plotperneighb = FALSE, args.pdf = list(landscape = TRUE)),
+    list(plotperneighb = TRUE, args.pdf = list(landscape = FALSE))
+  )
   
-  pdfArgs <- list(landscape = list(landscape = TRUE),
-                  portrait = list(landscape = FALSE))
-  
-  caseArgs <- list(list(plotperneighb = FALSE, args.pdf = pdfArgs$landscape),
-                   list(plotperneighb = TRUE, args.pdf = pdfArgs$portrait))
-  
-  callWith(plotCases, commonArgs, caseArgs[[1]])
-  callWith(plotCases, commonArgs, caseArgs[[2]])
+  callWith(plotCases, args.common, args.case[[1]])
+  callWith(plotCases, args.common, args.case[[2]])
   
   cases <- cases.all[! isSolved(diffs, cases.all, method = 1), ]
   
