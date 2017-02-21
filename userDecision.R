@@ -1,9 +1,7 @@
 # askRepeatedly ----------------------------------------------------------------
 askRepeatedly <- function
 (
-  askFunction = function() {
-    if ("" == (answer <- readline("Answer: "))) NULL else list(answer = answer)
-  },
+  askFunction = .default_askFunction,
   askArgs = list(),
   runFunction = NULL, 
   runArgs = list()
@@ -35,6 +33,19 @@ askRepeatedly <- function
   userArgs
 }
 
+# .default_askFunction ---------------------------------------------------------
+.default_askFunction <- function() 
+{
+  answer <- readline("Answer: ")
+  
+  if (answer == "")  {
+    NULL
+  }
+  else {
+    list(answer = answer)
+  }
+}
+
 # askForUserHeights ------------------------------------------------------------
 askForUserHeights <- function()
 {
@@ -50,15 +61,16 @@ askForUserHeights <- function()
   
   valid <- lapply(keysValues, function(x) hsValidValue(hsTrim(x), "en"))
   
-  if (! all(valid$keys) || ! all(valid$valus)) {
+  if (! all(selectElements(valid, "keys")) || 
+      ! all(selectElements(valid, "values"))) {
     message("Invalid input. Examples: '1,2', '1,2=1.0,3=0.5'")
     return (NULL)
   }
   
-  list(
-    bars = as.integer(keysValues$keys),
-    heights = defaultIfNA(as.double(keysValues$values), 0.0)
-  )
+  list(barheights = data.frame(
+    bar = as.integer(keysValues$keys),
+    height = defaultIfNA(as.double(keysValues$values), 0.0)
+  ))
   
   ### list with elements \code{bars} (numbers of the bars for which the user
 }
