@@ -1,4 +1,4 @@
-library(kwb.utils) # for hsMatrixToListForm
+library(kwb.utils) # e.g. for hsMatrixToListForm, getObjectFromRDataFile
 library(kwb.read) # for readBwbRainData, readBwbRainCorrection
 library(kwb.misc)
 library(lattice)
@@ -9,7 +9,7 @@ scriptdir <- "/home/hauke/RProgramming/github/rain"
 
 scripts <- c("applyCorrection", "convert", "doRainValidation", "neighbour", 
              "plotCases", "plotRainForValidation", "prevalidate", "replaceNA", 
-             "userPaths")
+             "userDecision", "userPaths")
 
 sourceScripts(file.path(scriptdir, paste0(scripts, ".R")))
 
@@ -49,8 +49,8 @@ if (TRUE)
   file <- file.path(.testdir(), "rain.RData")
   
   if (file.exists(file)) {
-    rainData <- kwb.utils::getObjectFromRDataFile(file, "rainData")
-    corrData <- kwb.utils::getObjectFromRDataFile(file, "corrData")
+    rainData <- getObjectFromRDataFile(file, "rainData")
+    corrData <- getObjectFromRDataFile(file, "corrData")
   } else {
     rainData <- readBwbRainData(
       file = paths$xls.rd, use2007Driver = TRUE, sep = ";", dec = ",",
@@ -64,7 +64,7 @@ if (TRUE)
   }
   
   # Provide a matrix containing for each gauge its nearest neighbour gauges
-  neighb <- getNeighbourMatrix(gauges = names(rainData)[-(1:2)])[, 1:3]
+  neighb <- getNeighbourMatrix(gauges = names(rainData)[-(1:2)])[, 1:1, drop = FALSE]
 }
 
 # Do the validation ------------------------------------------------------------
