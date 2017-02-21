@@ -70,11 +70,23 @@ if (TRUE)
 # Do the validation ------------------------------------------------------------
 if (FALSE)
 {
-  ## Step 07: Auto-validation(rd, cd) -> negative correction values in rd.diff
-  system.time(out <- capture.output(
-    corr <- rainValidation(rainData, corrData, neighb = neighb, ask = FALSE)
-  ))
+  to.pdf <- FALSE
   
+  ## Prepare pdf device but do not set current device to pdf device
+  file.pdf <- preparePdfIf(to.pdf, makeCurrent = FALSE)
+  
+  ## Call the rain validation routine
+
+  ## Step 07: Auto-validation(rd, cd) -> negative correction values in rd.diff
+  out <- capture.output(
+    corr <- rainValidation(rainData, corrData, neighb = neighb, ask = FALSE)
+    # devPdf = kwb.base::hsPdfDev(), cex = c(legend = 1.1, barid = 0.8), 
+    # plotperneighb = FALSE
+  )
+
+  ## Close the PDF connection and open the file in the PDF viewer
+  finishAndShowPdfIf(to.pdf, file.pdf, which = kwb.base::hsPdfDev())
+
   cases1 <- rbindAll(corr$RESULT)
   cases2 <- kwb.rain::getCorrectionCases(cd.orig, rd.orig)
   
