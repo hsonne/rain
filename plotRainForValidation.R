@@ -22,9 +22,10 @@ plotRainForValidation <- function
 )
 {
   ## prepare matrix plot and restore old graphical parameters on exit
-  oldpar <- par(mfrow = c(rowsToPlot(plotperneighb, n.cols = ncol(rd)), 1))
+  oldpar <- setMatrixPlot(plotperneighb, ncol(rd))
   on.exit(par(oldpar)) 
-  
+
+  # Plot the rain at the gauge to be validated
   args.plot <- plotRainAtGauge(
     rd = rd, 
     barheights = barheights, 
@@ -33,29 +34,23 @@ plotRainForValidation <- function
     cex = cex
   )
 
-  ## neighbours to plot?
+  ## Plot the rain at neighbour gauges (if any)
   if (ncol(rd) > 2) {
-    
-    ## One plot per neighbour?
-    if (isTRUE(plotperneighb)) {
-      
-      onePlotPerNeighbour(rd, args.plot)
-    }
-    else {
-      
-      allNeighboursInOnePlot(rd, args.plot)
-    }
+    FUN <- ifelse(plotperneighb, onePlotPerNeighbour, allNeighboursInOnePlot)
+    callWith(FUN, args.plot, rd = rd)
   }
 }
 
-# rowsToPlot -------------------------------------------------------------------
-rowsToPlot <- function(plotperneighb, n.cols)
+# setMatrixPlot ----------------------------------------------------------------
+setMatrixPlot <- function(plotperneighb, n.cols)
 {
-  if (plotperneighb) {
+  n.rows <- if (plotperneighb) {
     n.cols - 1 # one plot for each (non-time) column
   } else {
     1 + (n.cols > 2) # no neighbours: 1, any neighbours: 2
   }
+  
+  par(mfrow = c(n.rows, 1))
 }
 
 # plotRainAtGauge --------------------------------------------------------------
@@ -71,36 +66,42 @@ plotRainAtGauge <- function
   case = case
 )
 {
-  ## Prepare (2 x n)-matrix for barplot with n = number of rows in rd.
-  ## - 1st row of m contains new (corrected) signal heights,
-  ## - 2nd row of m contains the heights by which the original signals
-  ##   were corrected.
-  timestamps <- rd[[1]]
-  rain <- rd[[2]]
-  
-  heightMatrix <- prepareMatrix(rain, barheights)
-  
-  ## general arguments
+  ## Define general plot arguments
   ## las = 3: axis labels always vertical to the axis
-  args.plot <- arglist(constargs("barplot_2"), 
-                       cex.main = cex["legend"], 
-                       names.arg = .toTimeLabels(timestamps, dateFormat))
+  args.plot <- arglist(
+    constargs("barplot_2"), 
+    cex.main = cex["legend"], 
+    names.arg = .toTimeLabels(rd[, 1], dateFormat)
+  )
+
+  # Get the rain heights
+  rain <- rd[, 2]
   
-  ## call the barplot function with general arguments, constant arguments and 
-  ## specifig arguments
+  # Get the indices of the signals (ordered decreasingly by their value)
+  signal.order <- signalOrder(rain)
+  
+  ## Prepare a (2 x n)-matrix of bar heights with n = number of rows in rd. 
+  ## - 1st row: new (corrected) signal heights,
+  ## - 2nd row: heights by which the original signals were corrected.
+  height <- prepareMatrix(rain, barheights, signal.order)
+  
+  ## Call the barplot function with general arguments, constant arguments and 
+  ## specific arguments
   x <- callWith(
     barplot, args.plot, constargs("barplot_1")
-    , height = heightMatrix
+    , height = height
     , ylim = .ylim(rain, step = 0.05, extra = 0.15)
     , main = main
   )
   
   ## label the bars if required
   if (isTRUE(label)) {
-    barLabels <- .toBarLabels(x = rd[, 2])
-    indices <- which(barLabels != "")
+    
     kwb.plot::addLabels(
-      x[indices], barLabels[indices], y0 = rain[indices], cex = cex["barid"]
+      x = x[signal.order], 
+      labels = seq_along(signal.order),
+      y0 = rain[signal.order], 
+      cex = cex["barid"]
     )
   }
   
@@ -129,52 +130,43 @@ plotRainAtGauge <- function
   kwb.plot::niceLabels(timelabels, labelstep = labelstep, offset = index -1)
 }
 
-# .toBarLabels -----------------------------------------------------------------
-.toBarLabels <- function(x, digits = 1)
+# signalOrder ------------------------------------------------------------------
+signalOrder <- function(x, digits = 1)
 {
-  x <- defaultIfNA(x, 0.0)
-  
-  isSignal <- x > 0
-  
-  indices <- which(isSignal)[order(- round(x[isSignal], digits))]
-  
-  labels <- rep(NA, length(x))
-  labels[indices] <- seq_along(indices)
-  
-  labels
+  x <- round(defaultIfNA(x, 0), digits)
+  order(x, decreasing = TRUE)[seq_len(sum(x > 0))]
 }
 
 # prepareMatrix ----------------------------------------------------------------
-prepareMatrix <- function(rain.mm, barheights, dbg = FALSE)
+prepareMatrix <- function(rain, barheights, signal.order, dbg = FALSE)
 {
-  if (is.null(barheights)) {
-    
-    valid.mm <- rain.mm
-    
+  rain.new <- if (is.null(barheights)) {
+    rain
   } else {
-    
-    bars <- barheights[, 1]
-    heights <- barheights[, 2]
-    
-    valid.mm <- addAtIndices(
-      x = rain.mm, 
-      indices = bars,
-      values = heights - rain.mm[bars] # selectColumns(rdiff, "diff")
-    )
+    setAtIndices(rain, signal.order[barheights[, 1]], barheights[, 2])
   }
   
-  printIf(dbg, rain.mm, "rain.mm")
-  printIf(dbg, valid.mm, "valid.mm")
+  printIf(dbg, rain, "rain")
+  printIf(dbg, rain.new, "rain.new")
   
-  matrix(c(valid.mm, rain.mm - valid.mm), byrow = TRUE, nrow = 2)
+  matrix(c(rain.new, rain - rain.new), byrow = TRUE, nrow = 2)
 }
 
-# addAtIndices --------------------------------------------------------------
-addAtIndices <- function(x, indices, values)
+# setAtIndices -----------------------------------------------------------------
+setAtIndices <- function(x, indices, values)
 {
   stopifnot(length(indices) == length(values))
   
-  x[indices] <- x[indices] + values
+  isNA <- is.na(indices)
+  
+  if (any(isNA)) {
+    stop(
+      "There are ", sum(isNA), " NAs in indices (", collapsed(indices, ", "),
+      ")! Values: ", collapsed(values, ", ")
+    )
+  }
+  
+  x[indices] <- values
   
   x
 }
