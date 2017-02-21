@@ -20,7 +20,7 @@ rainValidation <- function
   gauges <- defaultIfNULL(gauges, names(rainData)[- c(1, 2)])
 
   rainSums <- rowSums(selectColumns(rainData, gauges)) #, na.rm = TRUE)
-  rainSignals <- rainData[is.na(rainSums) | rainSums > 0, ]
+  rainSignals <- rainData[defaultIfNA(rainSums, 1) > 0, ]
   
   cases.all <- kwb.rain::getCorrectionCases(corrData, rainSignals)
 
@@ -69,11 +69,15 @@ rainValidation <- function
     )
   })
 
-  list(
+  # Create the output structure
+  out <- list(
     rd.diff = rbindAll(lapply(results, "[[", "rd.diff")), 
     cd.diff = rbindAll(lapply(results, "[[", "cd.diff")), 
     dbgRain = rbindAll(lapply(results, "[[", "dbgRain"))
   )
+  
+  # Return all relevant intermediate variables as attributes
+  structure(out, cases.all = cases.all)
 }
 
 # guessDifferences -------------------------------------------------------------
