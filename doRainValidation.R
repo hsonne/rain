@@ -11,80 +11,121 @@ rainValidation <- function
   ### names of gauges to be validated. Default: names of columns 3:ncol(rd)
   tolerance = 0.001,
   ### used for "almost equal" comparison of numeric values. Default: 0.001
-  dbg = FALSE,
+  dbg = TRUE,
   ### if \code{TRUE} debug messages are shown
   ...
   ### further arguments passed to validateRainDay, such as neighb, devPdf, ask
 )
 {
+  clearConsole()
+  
   gauges <- defaultIfNULL(gauges, names(rainData)[- c(1, 2)])
 
-  rainSums <- rowSums(selectColumns(rainData, gauges)) #, na.rm = TRUE)
+  catIf(dbg, "\n** Gauges found/selected:\n  ", stringList(gauges), "\n   ")
+  
+  catIf(dbg, "\n** Exclude rows with sum of signals = 0...\n   ")
+  rainSums <- rowSums(selectColumns(rainData, gauges))
   rainSignals <- rainData[defaultIfNA(rainSums, 1) > 0, ]
+  catIf(dbg, nrow(rainSignals), "rows kept (-> attribute 'rainSignals').\n")
   
+  catIf(dbg, "\n** Find the cases in which a correction is necessary...\n   ")
   cases.all <- kwb.rain::getCorrectionCases(corrData, rainSignals)
-
-  showOverviewMessages(gauges, gauges.corr = names(corrData), cases.all)
+  catIf(dbg, nrow(cases.all), "cases found (-> attribute 'cases.all').\n")
   
-  #cases <- prevalidate(cases.all, tolerance = 0.001)
+  catIf(dbg, "\n** Prevalidate all cases... ")
+  cases.pre <- prevalidate(cases.all, tolerance = 0.001)
+  catIf(dbg, "ok. (-> attribute 'cases.pre')\n")
+  frequency <- hsRenameColumns(as.data.frame(table(cases.pre$action)), list(
+    Var1 = "Proposed_Action", Freq = "Frequency"
+  ))
+  printIf(dbg, frequency, "\nFrequency of Proposed Actions")
+  undecided <- frequency$Proposed_Action %in% c("", "?")
+  catIf(dbg, "\n   ->", sum(frequency$Frequency[undecided]), 
+        "cases to be decided manually.\n")
+  
   cases <- cases.all
-  
+ 
   # From the undecided cases, look for cases in which the correction value
   # equals a sum of highest signals or the sum of the highest signal and its
   # left or right neighbours
+  
+  catIf(dbg, "\n** Add column 'day' to rainData and rainSignals... ")
   rainData$day <- hsDateStr(rainData[, 1])
   rainSignals$day <- hsDateStr(rainSignals[, 1])
+  catIf(dbg, "ok.\n")
   
-  diffs <- guessDifferences(cases.all, rainSignals)
+  catIf(dbg, "\n** Guess the wrong signals... \n   ")
+  diffs.raw <- guessDifferences(cases.all, rainSignals, dbg = FALSE)
+  diffs <- mergeDiffs(diffs)
+  catIf(dbg, nrow(diffs$data), "signals guessed (-> attribute 'diffs')")
 
-  args.common <- list(cases = cases, rainData = rainData, diffs = diffs)
-
-  args.case <- list(
-    list(plotperneighb = FALSE, args.pdf = list(landscape = TRUE)),
-    list(plotperneighb = TRUE, args.pdf = list(landscape = FALSE))
-  )
-  
-  callWith(plotCases, args.common, args.case[[1]])
-  callWith(plotCases, args.common, args.case[[2]])
-  
-  cases <- cases.all[! isSolved(diffs, cases.all, method = 1), ]
-  
-  # Loop through the remaining cases
-  results <- lapply(seq_len(nrow(cases)), function(i) {
-
-    ## Validate rain data of this day and gauge
-    if (FALSE) {
-      case <- cases[1, ]
-      neighb <- getNeighbourMatrix(gauges = names(rainData)[-(1:2)])
-      num.neighb = 2
-    }
-    userValidation(
-      case = cases[i, ], 
-      rainData = rainData,
-      neighb = neighb,
-      diff.thresh = diff.thresh,
-      rd.digits = rd.digits,
-      dbg = dbg,
-      ...
-    )
-  })
+  # args.common <- list(cases = cases, rainData = rainData, diffs = diffs)
+  # 
+  # args.case <- list(
+  #   list(plotperneighb = FALSE, args.pdf = list(landscape = TRUE)),
+  #   list(plotperneighb = TRUE, args.pdf = list(landscape = FALSE))
+  # )
+  # 
+  # callWith(plotCases, args.common, args.case[[1]])
+  # callWith(plotCases, args.common, args.case[[2]])
+  # 
+  # cases <- cases.all[! isSolved(diffs, cases.all, method = 1), ]
+  # 
+  # # Loop through the remaining cases
+  # results <- lapply(seq_len(nrow(cases)), function(i) {
+  # 
+  #   ## Validate rain data of this day and gauge
+  #   if (FALSE) {
+  #     case <- cases[1, ]
+  #     neighb <- getNeighbourMatrix(gauges = names(rainData)[-(1:2)])
+  #     num.neighb = 2
+  #   }
+  #   userValidation(
+  #     case = cases[i, ], 
+  #     rainData = rainData,
+  #     neighb = neighb,
+  #     diff.thresh = diff.thresh,
+  #     rd.digits = rd.digits,
+  #     dbg = dbg,
+  #     ...
+  #   )
+  # })
 
   # Create the output structure
-  out <- list(
-    rd.diff = rbindAll(lapply(results, "[[", "rd.diff")), 
-    cd.diff = rbindAll(lapply(results, "[[", "cd.diff")), 
-    dbgRain = rbindAll(lapply(results, "[[", "dbgRain"))
-  )
+  # out <- list(
+  #   rd.diff = rbindAll(lapply(results, "[[", "rd.diff")), 
+  #   cd.diff = rbindAll(lapply(results, "[[", "cd.diff")), 
+  #   dbgRain = rbindAll(lapply(results, "[[", "dbgRain"))
+  # )
+  
+  out <- list()
   
   # Return all relevant intermediate variables as attributes
-  structure(out, cases.all = cases.all)
+  structure(out, rainSignals = rainSignals, cases.all = cases.all, 
+            cases.pre = cases.pre, diffs = diffs)
+}
+
+# mergeDiffs -------------------------------------------------------------------
+mergeDiffs <- function(diffs)
+{
+  # Exclude NULL entries
+  diffs <- diffs[! sapply(diffs, is.null)]
+  
+  out <- list(
+    data = rbindAll(lapply(diffs, selectElements, "data")),
+    corr = rbindAll(lapply(diffs, selectElements, "corr"))
+  )
+  
+  out$corr$corr.new <- round(out$corr$corr.new, 1)
+  
+  out
 }
 
 # guessDifferences -------------------------------------------------------------
-guessDifferences <- function(cases, rainData)
+guessDifferences <- function(cases, rainData, dbg = FALSE)
 {
   lapply(seq_len(nrow(cases)), function(i) {
-    printIf(TRUE, cases[i, ], "case")
+    printIf(dbg, cases[i, ], "case")
     analyseCase(case = cases[i, ], rainData)
   })
 }

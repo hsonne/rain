@@ -78,12 +78,16 @@ if (FALSE)
   ## Call the rain validation routine
 
   ## Step 07: Auto-validation(rd, cd) -> negative correction values in rd.diff
-  out <- capture.output(
+  #out <- capture.output(
     corr <- rainValidation(rainData, corrData, neighb = neighb, ask = FALSE)
     # devPdf = kwb.base::hsPdfDev(), cex = c(legend = 1.1, barid = 0.8), 
     # plotperneighb = FALSE
-  )
+  #)
 
+  # Show all cases of correction (get from attribute "cases.all" in the output)
+  cases <- getAttribute(corr, "cases.all")
+  showOverviewMessages(gauges, gauges.corr = names(corrData), cases)
+  
   ## Close the PDF connection and open the file in the PDF viewer
   finishAndShowPdfIf(to.pdf, file.pdf, which = kwb.base::hsPdfDev())
 
